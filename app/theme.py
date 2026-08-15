@@ -25,7 +25,12 @@ ACCENT = "#A8B93A"
 TRACK = "#33363B"  # empty/background portion of a percentile bar, also used for dividers
 TICK = "#FFFFFF"  # the marker showing exactly where a bar stops
 
-_HIDE_CHROME_CSS = """
+# NOTE: this template uses a literal {accent} placeholder substituted via
+# str.replace() at the bottom -- NOT %-formatting or .format(). CSS is
+# full of characters those treat as special: a bare "%" (max-width: 100%)
+# breaks %-formatting, and every "{" in a CSS rule breaks .format().
+# Both have bitten this file. str.replace() has no special characters.
+_HIDE_CHROME_CSS_TEMPLATE = """
 <style>
 /* Hide Streamlit's branding chrome (main menu, "Deploy" button, the
    "Made with Streamlit" footer, the colored top stripe) so the app
@@ -66,7 +71,7 @@ footer {visibility: hidden;}
 
 /* small accent underline under the app title */
 .app-title-bar {
-    border-bottom: 3px solid %(accent)s;
+    border-bottom: 3px solid {accent};
     padding-bottom: 0.5rem;
     margin-bottom: 1rem;
 }
@@ -142,7 +147,9 @@ footer {visibility: hidden;}
     [data-testid="stAppViewContainer"] {overflow-x: hidden;}
 }
 </style>
-""" % {"accent": ACCENT}
+"""
+
+_HIDE_CHROME_CSS = _HIDE_CHROME_CSS_TEMPLATE.replace("{accent}", ACCENT)
 
 
 def inject_custom_css():

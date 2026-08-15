@@ -379,12 +379,38 @@ def add_market_value_estimate(df: pd.DataFrame) -> pd.DataFrame:
         penalty += np.where(df["contract_type"].eq("Rookie Scale"), 1, 0)
 
     # Base tier from interval width, then demote for each penalty.
-    base = np.select([rel_width <= 1.0, rel_width <= 2.0], [2, 1], default=0)
+    #
+    # Thresholds are QUANTILES of the observed width distribution, not
+    # fixed numbers. An earlier version hardcoded 1.0 / 2.0, which turned
+    # out to sit far below the actual median width (~2.1x) -- so barely
+    # any player cleared the "High" bar and the tiers were meaningless.
+    # Reading the cut points off the data keeps all three tiers populated
+    # regardless of how wide the model's intervals happen to run in a
+    # given season.
+    #
+    # This does make confidence RELATIVE ("among the sharpest third of
+    # estimates") rather than absolute. That's the honest framing anyway:
+    # what matters to a reader is which estimates are better-supported
+    # than the others, not whether they clear some arbitrary constant.
+    finite_widths = rel_width[np.isfinite(rel_width)]
+    if len(finite_widths) >= 10:
+        tight_cut = float(np.quantile(finite_widths, 0.33))
+        loose_cut = float(np.quantile(finite_widths, 0.67))
+    else:
+        tight_cut, loose_cut = 1.0, 2.0
+
+    base = np.select([rel_width <= tight_cut, rel_width <= loose_cut], [2, 1], default=0)
     score = np.clip(base - penalty, 0, 2)
     df["estimate_confidence"] = np.select(
         [np.isnan(rel_width), score >= 2, score == 1],
         ["Unknown", "High", "Medium"],
         default="Low",
+    )
+
+    conf_counts = pd.Series(df["estimate_confidence"]).value_counts().to_dict()
+    print(
+        f"  Estimate confidence (width cuts {tight_cut:.2f}x / {loose_cut:.2f}x): "
+        + ", ".join(f"{k}={v}" for k, v in sorted(conf_counts.items()))
     )
 
     cap = df[SALARY_FIELD_FOR_REGRESSION]
