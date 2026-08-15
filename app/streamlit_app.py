@@ -192,7 +192,6 @@ def _active_filter_summary():
         ("Position", st.session_state.get("f_posgroup", "All")),
         ("Verdict", st.session_state.get("f_verdict", "All")),
         ("Tier", st.session_state.get("f_tier", "All")),
-        ("Confidence", st.session_state.get("f_conf", "All")),
     ]:
         if val and val != "All":
             # The conclusive-only option has a long explanatory label;
@@ -204,6 +203,12 @@ def _active_filter_summary():
             elif str(val).startswith("Conclusive"):
                 val = "Conclusive only"
             bits.append(f"{label}: {val}")
+
+    # Confidence is a multiselect, so it's a list rather than a string.
+    conf_sel = st.session_state.get("f_conf") or []
+    if conf_sel:
+        bits.append(f"Confidence: {'/'.join(conf_sel)}")
+
     name = st.session_state.get("f_search", "")
     if name:
         bits.append(f'Name: "{name}"')
@@ -278,16 +283,22 @@ with st.expander(f"Filters  ({_active_filter_summary()})", expanded=False):
 
     # Player search in the top nav jumps to a player page; this one is a
     # leaderboard filter, which is a different job.
-    conf_options = ["All", "High", "Medium", "Low"]
-    conf_choice = fr2[2].selectbox(
+    # Multi-select rather than single-choice: "High or Medium" is the
+    # natural way to ask this -- you want the estimates worth trusting,
+    # which is usually more than one tier. Empty selection = no filter,
+    # so the default state shows everyone.
+    conf_choice = fr2[2].multiselect(
         "Estimate confidence",
-        conf_options,
+        ["High", "Medium", "Low", "Unknown"],
+        default=[],
         key="f_conf",
+        placeholder="All",
         help=(
             "How much to trust this player's $-estimate, based on how wide his "
             "prediction interval is plus whether any inputs were missing or "
             "extrapolated. Independent of the verdict -- a 'Leaning overpaid, Low "
-            "confidence' player is a much weaker call than a high-confidence one."
+            "confidence' player is a much weaker call than a high-confidence one. "
+            "Pick more than one to combine tiers; leave empty for all."
         ),
     )
 
@@ -332,8 +343,8 @@ if verdict_choice != "All" and "market_value_verdict" in filtered.columns:
         filtered = filtered[filtered["market_value_verdict"] == verdict_choice]
 if tier_choice != "All" and "salary_tier" in filtered.columns:
     filtered = filtered[filtered["salary_tier"] == tier_choice]
-if conf_choice != "All" and "estimate_confidence" in filtered.columns:
-    filtered = filtered[filtered["estimate_confidence"] == conf_choice]
+if conf_choice and "estimate_confidence" in filtered.columns:
+    filtered = filtered[filtered["estimate_confidence"].isin(conf_choice)]
 if search:
     filtered = filtered[filtered["player"].str.contains(search, case=False, na=False)]
 
