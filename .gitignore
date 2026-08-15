@@ -1,0 +1,53 @@
+# Virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# Scraped HTML cache -- disposable, regenerate anytime, no need to bloat
+# the repo.
+data/cache/
+raw_html/
+
+# OS junk
+.DS_Store
+
+# Editor / tooling scaffolding
+.claude/
+.agents/
+.vscode/
+
+# Scratch + delivery artifacts
+*.zip
+debug_*.py
+
+# ---------------------------------------------------------------------
+# THIRD-PARTY SOURCE DATA -- deliberately NOT committed.
+#
+# EPM (dunksandthrees), DARKO (apanalytics), LEBRON (bball-index) and
+# the databallr.com metrics all come from sources with access
+# restrictions -- subscription gates or signed-request APIs. Using them
+# locally for research is fine; republishing the full league's values in
+# a public repo is republishing someone else's dataset.
+#
+# The deployed app doesn't need them: make_public_data.py strips the raw
+# values and keeps the derived percentile ranks, which is what the app
+# actually renders.
+# ---------------------------------------------------------------------
+data/manual/epm.csv
+data/manual/darko.csv
+data/manual/lebron.csv
+data/manual/databallr_metrics.csv
+
+# ---------------------------------------------------------------------
+# MODEL OUTPUTS
+#
+# DENY-BY-DEFAULT. Every generated output is ignored, and the single
+# public file is re-allowed explicitly below. This is deliberate: an
+# earlier version of this file listed specific filenames to ignore, and
+# stale outputs with slightly different names (player_value_model_full.csv,
+# player_value_model.xlsx) slipped past it and got staged. Ignoring the
+# whole directory means a new output file can never leak by default --
+# it has to be opted IN.
+# ---------------------------------------------------------------------
+outputs/*
+!outputs/player_value_model_public.csv
