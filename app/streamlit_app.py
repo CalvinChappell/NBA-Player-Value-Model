@@ -721,7 +721,8 @@ st.caption("Click **View** on any row to open that player's page. Column headers
 # front-and-center metrics everywhere -- not just their own dedicated tab.
 _BASIC_STATS_COLUMNS = [
     "player", "team", "pos", "market_value_verdict", "estimate_confidence", "market_value_surplus", "value_score",
-    "production_pctile", "AGE", "experience", "contract_type", "GP", "MP",
+    "production_pctile", "FoulDraw_Value", "Rim_Scoring_Value",
+    "AGE", "experience", "contract_type", "GP", "MP",
     "PPG", "RPG", "APG", "SPG", "BPG", "FG_PCT", "FG3_PCT", "FT_PCT",
 ]
 _ADVANCED_METRICS_COLUMNS = [
@@ -864,6 +865,13 @@ def _render_table_tab(base_df: pd.DataFrame, columns: list, key: str):
         medal_columns["Value Score"] = value_score_pctiles
     if production_pctiles is not None:
         medal_columns["Production Pctile"] = production_pctiles
+
+    # Skill Value scores are themselves 0-100 composites, so they colour
+    # off their own value -- no separate percentile column needed.
+    for raw_col, label in (("FoulDraw_Value", "Foul-Drawing Value"),
+                           ("Rim_Scoring_Value", "Rim Scoring Value")):
+        if label in display_df.columns:
+            medal_columns[label] = pd.to_numeric(display_df[label], errors="coerce")
 
     # Keep a clean copy for the CSV download BEFORE turning the Player
     # column into links -- otherwise the exported file would contain

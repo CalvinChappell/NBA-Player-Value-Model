@@ -117,8 +117,19 @@ footer {visibility: hidden;}
         font-size: 0.85rem;
     }
 
-    /* Dataframes: allow touch scrolling without the page fighting it. */
-    [data-testid="stDataFrame"] {-webkit-overflow-scrolling: touch;}
+    /* Dataframes: allow touch scrolling without the page fighting it.
+       The overflow-x:hidden rule below (which stops the sidebar overlay
+       forcing sideways page scroll) must NOT apply here, or the table
+       gets clipped at whatever fits the screen and the remaining columns
+       become unreachable. */
+    [data-testid="stDataFrame"] {
+        -webkit-overflow-scrolling: touch;
+        overflow-x: auto !important;
+        max-width: 100%;
+    }
+    [data-testid="stDataFrame"] * {
+        -webkit-overflow-scrolling: touch;
+    }
 
     /* Don't let the sidebar overlay swallow the whole screen. Streamlit
        renders it as a fixed overlay on narrow viewports, so cap the
