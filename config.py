@@ -153,10 +153,13 @@ FOUL_DRAW_VOLUME_WEIGHT = 0.60
 # keeps the metric anchored to real production.
 FOUL_DRAW_RATE_VS_PER36_WEIGHT = 0.65  # share going to FTA/36
 
-# Minimum season free throw attempts before Foul-Drawing Value is
-# considered a stable sample. Below this the value is still computed but
-# flagged (FoulDraw_low_sample) rather than dropped.
-FOUL_DRAW_MIN_FTA = 50
+# Same two-threshold structure as Rim Scoring Value above. Free throw
+# volume is less positionally skewed than rim volume, so the old single
+# cutoff of 50 was less damaging here (83% of the rotation cleared it),
+# but the same principle applies: report with a caveat rather than
+# withhold.
+FOUL_DRAW_MIN_FTA = 30          # below this, too noisy to report (~92% of rotation clears)
+FOUL_DRAW_LOW_SAMPLE_FTA = 75   # below this, computed but flagged
 
 # Rim Scoring Value: efficiency (FG% at 0-3 ft) vs. volume (rim attempts
 # per 36 minutes).
@@ -170,9 +173,25 @@ FOUL_DRAW_MIN_FTA = 50
 # uncontested dunks a month.
 RIM_VOLUME_WEIGHT = 0.45  # remainder (0.55) goes to FG% at the rim
 
-# Minimum rim attempts (0-3 ft) for a stable sample. Below this the
-# value is computed but flagged via Rim_low_sample.
-RIM_MIN_ATTEMPTS = 100
+# Rim Scoring Value uses TWO thresholds, not one.
+#
+# A single cutoff at 100 attempts turned out to be badly placed: the
+# median rotation player takes 99 rim attempts, so it excluded half the
+# league outright -- and it did so unevenly. 62% of Bigs cleared it
+# versus only 35% of Guards (median rim attempts 133 vs 79), because
+# rim share is itself positional. The metric was quietly answering
+# "is this a big?" as much as "can he finish?".
+#
+# So: compute the value for anyone above a low FLOOR, and use a separate,
+# higher threshold purely to FLAG the noisy ones. A 22-minute guard now
+# appears with a caveat instead of vanishing, which is more useful than
+# silence -- the reader can weigh it themselves.
+#
+# Statistical cost of the lower floor is real but modest: standard error
+# on rim FG% is roughly +/-5 points at 100 attempts and +/-7 at 50.
+# Noisier, not meaningless.
+RIM_MIN_ATTEMPTS = 40        # below this, too noisy to report at all (~89% of rotation clears)
+RIM_LOW_SAMPLE_ATTEMPTS = 100  # below this, computed but flagged as low sample
 
 # Column used for the salary percentile / value score. "cap_hit" is
 # generally what front offices care about (accounts for trade kickers,

@@ -13,12 +13,27 @@ Currently implemented:
 
   Foul-Drawing Value  -- getting to the free throw line, and converting
                          once there.
+  Rim Scoring Value   -- finishing inside 3 ft, and how often you get there.
 
-Planned (see project notes): Rim Scoring Value, Off-Dribble Shooting
-Value, Spot-Up Shooting Value, Rebounding Value, Defensive Value. The
-last four need NBA.com tracking data (nba_api), which has to be pulled
-locally rather than from a cloud IP -- Rim Scoring Value can come from
-Basketball-Reference's shooting page like this one does.
+Planned: Off-Dribble Shooting Value, Spot-Up Shooting Value, Rebounding
+Value, Defensive Value. All four need NBA.com tracking data (nba_api),
+which has to be pulled locally rather than from a cloud IP.
+
+SAMPLE THRESHOLDS
+-----------------
+Each metric has TWO thresholds rather than one: a floor below which the
+value isn't reported at all, and a higher line below which it's reported
+but flagged as low-sample.
+
+This came out of a real failure. Rim Scoring originally used a single
+100-attempt cutoff, which happened to sit almost exactly at the league
+median (99) -- so it silently dropped half the rotation. Worse, it did
+so unevenly: 62% of Bigs cleared it against 35% of Guards, because rim
+attempt share is itself positional. The metric was partly measuring
+"is this a big?" rather than "can he finish?".
+
+Reporting with a caveat beats withholding: the reader can discount a
+noisy number themselves, but can't do anything with an absent one.
 
 A note on weighting, since it's a judgment call rather than a derived
 constant: Foul-Drawing Value weights volume above efficiency
@@ -35,10 +50,12 @@ import numpy as np
 import pandas as pd
 
 from config import (
+    FOUL_DRAW_LOW_SAMPLE_FTA,
     FOUL_DRAW_MIN_FTA,
     FOUL_DRAW_RATE_VS_PER36_WEIGHT,
     FOUL_DRAW_VOLUME_WEIGHT,
     MIN_MINUTES,
+    RIM_LOW_SAMPLE_ATTEMPTS,
     RIM_MIN_ATTEMPTS,
     RIM_VOLUME_WEIGHT,
 )
@@ -113,7 +130,10 @@ def add_foul_draw_value(df: pd.DataFrame) -> pd.DataFrame:
     # Flag rather than drop: players below the attempt threshold still get
     # a value if they have the underlying stats, but it's marked so you
     # can see at a glance that it rests on a small sample.
-    df["FoulDraw_low_sample"] = (df["FTA_total"] < FOUL_DRAW_MIN_FTA) & df["FTA_total"].notna()
+    # Flagged (not excluded) between the floor and the low-sample line.
+    df["FoulDraw_low_sample"] = (
+        (df["FTA_total"] < FOUL_DRAW_LOW_SAMPLE_FTA) & df["FTA_total"].notna()
+    )
 
     return df
 
@@ -164,7 +184,9 @@ def add_rim_scoring_value(df: pd.DataFrame) -> pd.DataFrame:
     w = RIM_VOLUME_WEIGHT
     df["Rim_Scoring_Value"] = w * volume_pctile + (1 - w) * efficiency_pctile
 
-    df["Rim_low_sample"] = (df["rim_FGA_total"] < RIM_MIN_ATTEMPTS) & df["rim_FGA_total"].notna()
+    df["Rim_low_sample"] = (
+        (df["rim_FGA_total"] < RIM_LOW_SAMPLE_ATTEMPTS) & df["rim_FGA_total"].notna()
+    )
 
     return df
 
@@ -173,4 +195,27 @@ def add_value_metrics(df: pd.DataFrame) -> pd.DataFrame:
     """Entry point -- runs every composite value metric in this module."""
     df = add_foul_draw_value(df)
     df = add_rim_scoring_value(df)
+
+    # Report coverage so the thresholds stay honest. If one of these
+    # starts excluding a large share of the rotation -- or excluding one
+    # position group far more than another -- that's a sign the cutoff
+    # is doing something other than filtering noise.
+    rotation = df["MP"] >= MIN_MINUTES
+    n_rot = int(rotation.sum())
+    if n_rot:
+        for col, label in (("Rim_Scoring_Value", "Rim Scoring"),
+                           ("FoulDraw_Value", "Foul Drawing")):
+            if col in df.columns:
+                have = int(df.loc[rotation, col].notna().sum())
+                flagged_col = col.replace("_Scoring_Value", "_low_sample").replace(
+                    "FoulDraw_Value", "FoulDraw_low_sample"
+                )
+                flagged = (
+                    int(df.loc[rotation & df[col].notna(), flagged_col].sum())
+                    if flagged_col in df.columns else 0
+                )
+                print(
+                    f"  {label}: {have}/{n_rot} rotation players scored "
+                    f"({have / n_rot * 100:.0f}%), {flagged} flagged low-sample"
+                )
     return df
