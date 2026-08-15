@@ -40,6 +40,17 @@ def _fmt(value, kind: str) -> str:
     return str(value)
 
 
+def _md(text: str) -> str:
+    """Escape dollar signs for Streamlit markdown.
+
+    Streamlit renders markdown with LaTeX support, so a pair of dollar
+    signs in a line -- which any sentence quoting two money figures has,
+    e.g. "range: $2,710,290 - $21,933,580" -- gets parsed as inline math
+    and swallows the text between them. Escaping each $ prevents that.
+    """
+    return text.replace("$", r"\$")
+
+
 def _bar_row(row, metric: str, label: str, kind: str, pos_relative: bool = False) -> tuple:
     """pos_relative=True reads the {metric}_pctile_pos column (rank within
     the player's position group) instead of the league-wide percentile.
@@ -72,6 +83,17 @@ def render_player_page(df, default_player: str | None = None, compact: bool = Fa
     selected = default_player if default_player in players_sorted else players_sorted[0]
 
     row = df[df["player"] == selected].iloc[0].to_dict()
+
+    # Explicit way back. Arriving here via a chart click is a one-way
+    # trip otherwise -- the view radio is up top, but a back button next
+    # to the content the user just clicked into is more obvious.
+    # Sets a flag rather than writing to the search widget's state
+    # directly -- that widget was already instantiated further up this
+    # run, and Streamlit raises if you modify a live widget's state.
+    # streamlit_app.py picks the flag up at the top of the next run.
+    if st.button("← Back to leaderboard", key="back_to_leaderboard"):
+        st.session_state["_pending_clear"] = True
+        st.rerun()
 
     bar_h = 22 if compact else 26
     headline_h = 26 if compact else 30
@@ -183,18 +205,20 @@ def render_player_page(df, default_player: str | None = None, compact: bool = Fa
     # market-set, which inflates surplus mechanically.
     if row.get("contract_type") == "Rookie Scale":
         st.warning(
-            "**Rookie-scale contract.** The $-model is trained on veterans only, so this "
-            "estimate extrapolates outside its training data -- minutes played tend to "
-            "inflate it. Treat the surplus as indicative at best."
+            _md(
+                "**Rookie-scale contract.** The $-model is trained on veterans only, so this "
+                "estimate extrapolates outside its training data -- minutes played tend to "
+                "inflate it. Treat the surplus as indicative at best."
+            )
         )
 
     inner_lo = row.get("estimated_market_value_inner_low")
     inner_hi = row.get("estimated_market_value_inner_high")
 
     if lo is not None and lo == lo and hi is not None and hi == hi:
-        band = f"Model's 80% range: **{_fmt(lo, 'money')} – {_fmt(hi, 'money')}**"
+        band = _md(f"Model's 80% range: **{_fmt(lo, 'money')} – {_fmt(hi, 'money')}**")
         if inner_lo is not None and inner_lo == inner_lo:
-            band += f" · 50% range: **{_fmt(inner_lo, 'money')} – {_fmt(inner_hi, 'money')}**"
+            band += _md(f" · 50% range: **{_fmt(inner_lo, 'money')} – {_fmt(inner_hi, 'money')}**")
 
         if verdict in ("Underpaid", "Overpaid"):
             st.caption(

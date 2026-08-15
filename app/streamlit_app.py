@@ -11,6 +11,7 @@ directly from the app (slow on first run -- it's scraping live).
 
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 import pandas as pd
 import plotly.express as px
@@ -90,6 +91,35 @@ df = load_data(DATA_PATH, DATA_PATH.stat().st_mtime)
 _ALL_PLAYERS = sorted(df["player"].dropna().unique().tolist())
 
 if "view" not in st.session_state:
+    st.session_state["view"] = "Leaderboard"
+
+# Handle a click-through from a scatter plot. This MUST run before the
+# search selectbox is instantiated below: Streamlit raises if you modify
+# a widget's session_state entry after the widget exists in the same
+# run. So the chart click stashes the name under a private key, calls
+# st.rerun(), and the next run picks it up here -- before any widgets
+# are created -- and promotes it to the real search value.
+# The table's "View" links navigate to ?player=<name>. Read that here --
+# before any widget exists -- and clear it so the param doesn't stick
+# around and re-trigger on later interactions.
+_qp_player = st.query_params.get("player")
+if _qp_player:
+    st.query_params.clear()
+    if _qp_player in _ALL_PLAYERS:
+        st.session_state["_pending_player"] = _qp_player
+
+if "_pending_player" in st.session_state:
+    _pending = st.session_state.pop("_pending_player")
+    if _pending in _ALL_PLAYERS:
+        st.session_state["player_search"] = _pending
+        st.session_state["view"] = "Player Page"
+
+# Same constraint in the other direction: the "back to leaderboard"
+# button lives on the player page, which renders long after the search
+# widget exists, so it can't clear that widget's state directly either.
+# It sets this flag and reruns instead.
+if st.session_state.pop("_pending_clear", False):
+    st.session_state["player_search"] = ""
     st.session_state["view"] = "Leaderboard"
 
 
@@ -489,6 +519,38 @@ _CHART_HEIGHT = 460 if compact_view else 550
 _CHART_CONFIG = {"displayModeBar": not compact_view, "scrollZoom": False}
 
 
+def _plot(fig, key: str):
+    """Render a scatter and turn a click on any point into a jump to that
+    player's page.
+
+    Plotly selection events come back with whatever was passed as
+    `custom_data` on the trace, so each scatter carries the player name
+    there. We stash the clicked name under a private session_state key
+    and rerun -- see the handler near the top of this file for why it
+    can't be written straight into the search widget's own state.
+    """
+    event = st.plotly_chart(
+        _themed(fig),
+        width="stretch",
+        config=_CHART_CONFIG,
+        key=key,
+        on_select="rerun",
+        selection_mode="points",
+    )
+
+    points = []
+    try:
+        points = event.selection.points  # Streamlit >= 1.35
+    except AttributeError:
+        points = (event or {}).get("selection", {}).get("points", [])
+
+    for pt in points:
+        custom = pt.get("customdata")
+        if custom:
+            st.session_state["_pending_player"] = custom[0]
+            st.rerun()
+
+
 def _hover(cols: list) -> list:
     """Trim hover fields on mobile -- a 7-row tooltip runs off the edge
     of a phone screen and covers the chart you're trying to read.
@@ -531,6 +593,7 @@ def _themed(fig, height=None):
 
 # --- Scatter plots --------------------------------------------------
 st.subheader("Scatter plots")
+st.caption("Click any point to open that player's page.")
 tab1, tab2, tab3, tab4 = st.tabs(
     ["Production vs. Salary", "Salary vs. Market Value", "Aging Curve", "Playstyle"]
 )
@@ -543,11 +606,12 @@ with tab1:
         color="value_score",
         color_continuous_scale=_MEDAL_SCALE,
         hover_name="player",
+            custom_data=["player"],
         hover_data=_hover(["team", "contract_type", "cap_hit", "BPM", "EPM", "DARKO", "LEBRON"]),
         labels=_COLUMN_LABELS,
     )
     fig.add_shape(type="line", x0=0, y0=0, x1=100, y1=100, line=dict(dash="dash", color="#4B5563"))
-    st.plotly_chart(_themed(fig), width="stretch", config=_CHART_CONFIG)
+    _plot(fig, "scatter_prod_salary")
     st.caption(
         "Bargains sit above the diagonal (producing more than they're paid); "
         "overpays sit below it."
@@ -568,11 +632,12 @@ with tab2:
             color="market_value_surplus",
             color_continuous_scale=_MEDAL_SCALE,
             hover_name="player",
+            custom_data=["player"],
             hover_data=_hover(["team", "contract_type", "cap_hit", "estimated_market_value", "AGE"]),
             labels=_COLUMN_LABELS,
         )
         fig.add_shape(type="line", x0=0, y0=0, x1=100, y1=100, line=dict(dash="dash", color="#4B5563"))
-        st.plotly_chart(_themed(fig), width="stretch", config=_CHART_CONFIG)
+        _plot(fig, "scatter_salary_mv")
         st.caption(
             "Same read as the first tab (above the line = paid less than the model thinks "
             "they're worth), but driven by the $-estimator's prediction rather than raw "
@@ -589,6 +654,7 @@ with tab3:
         color="value_score",
         color_continuous_scale=_MEDAL_SCALE,
         hover_name="player",
+            custom_data=["player"],
         hover_data=_hover(["team", "contract_type", "cap_hit", "production_pctile"]),
         labels=_COLUMN_LABELS,
     )
@@ -600,7 +666,7 @@ with tab3:
         y1=0,
         line=dict(dash="dash", color="#4B5563"),
     )
-    st.plotly_chart(_themed(fig), width="stretch", config=_CHART_CONFIG)
+    _plot(fig, "scatter_aging")
     st.caption("Where value tends to concentrate across the aging curve -- above the dashed line is a bargain at that age.")
 
 with tab4:
@@ -625,6 +691,7 @@ with tab4:
             color="production_pctile",
             color_continuous_scale=_MEDAL_SCALE,
             hover_name="player",
+            custom_data=["player"],
             hover_data=_hover(["team", "contract_type", "PVAL", "RAPM_3Y", "NET_ON_OFF"]),
             labels=_COLUMN_LABELS,
         )
@@ -636,7 +703,7 @@ with tab4:
             x0=filtered[x_col].min(), x1=filtered[x_col].max(),
             y0=midline, y1=midline, line=dict(dash="dash", color="#4B5563"),
         )
-        st.plotly_chart(_themed(fig), width="stretch", config=_CHART_CONFIG)
+        _plot(fig, "scatter_playstyle")
         st.caption(
             "Playstyle showcase: high OnBall% + high rTS% = efficient, high-usage shot "
             "creators. Colored by production percentile." + axis_note
@@ -646,6 +713,7 @@ with tab4:
 
 # --- Player table -----------------------------------------------------
 st.subheader("Player table")
+st.caption("Click **View** on any row to open that player's page. Column headers sort.")
 
 # Three curated column groups. "value_score" and "production_pctile" are
 # deliberately placed right after the identity columns (player/team/pos)
@@ -797,14 +865,42 @@ def _render_table_tab(base_df: pd.DataFrame, columns: list, key: str):
     if production_pctiles is not None:
         medal_columns["Production Pctile"] = production_pctiles
 
+    # Keep a clean copy for the CSV download BEFORE turning the Player
+    # column into links -- otherwise the exported file would contain
+    # "?player=Ryan Rollins" instead of the name.
+    download_df = display_df.copy()
+
+    # Navigation via a link column rather than row selection. Streamlit's
+    # row-selection UI adds a checkbox column, and because the dataframe
+    # renders to a canvas (glide-data-grid) that checkbox can't be hidden
+    # with CSS. Making the Player column itself a LinkColumn means the
+    # name IS the click target, with no extra column and no checkbox, and
+    # column-header sorting still works.
+    #
+    # The name is deliberately NOT percent-encoded in the stored value:
+    # display_text runs its regex against this raw string, so encoding it
+    # here would render accented names as "Nikola%20Joki%C4%87". Browsers
+    # encode on navigation anyway, and Streamlit decodes on the way back.
+    column_config = {}
+    if "Player" in display_df.columns:
+        display_df = display_df.copy()
+        display_df["Player"] = [f"?player={p}" for p in display_df["Player"]]
+        column_config["Player"] = st.column_config.LinkColumn(
+            "Player",
+            display_text=r"\?player=(.*)",
+            help="Click a name to open that player's page",
+        )
+
     st.dataframe(
         _style_table(display_df, medal_columns),
         width="stretch",
         height=420 if compact_view else 600,
+        key=f"table_{key}",
+        column_config=column_config,
     )
     st.download_button(
         "Download this view as CSV",
-        display_df.to_csv(index=False).encode("utf-8"),
+        download_df.to_csv(index=False).encode("utf-8"),
         file_name=f"nba_player_value_{key}.csv",
         mime="text/csv",
         key=f"dl_{key}",
