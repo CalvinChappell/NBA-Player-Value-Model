@@ -333,6 +333,41 @@ def add_market_value_estimate(df: pd.DataFrame) -> pd.DataFrame:
     # inside it, which previously reported as "Fairly paid" and threw the
     # signal away. "Leaning" says what the model thinks while being
     # honest that it can't rule out fair value.
+    # --- How much to trust THIS player's estimate ----------------------
+    # The verdict says which direction the model leans; this says how
+    # much the underlying estimate is worth leaning on. Three inputs:
+    #
+    #   1. Relative interval width. An 80% band spanning 3x the point
+    #      estimate means the model has very little idea; one spanning
+    #      0.8x is comparatively sharp. This is the main signal.
+    #   2. Median-filled features. A player missing EPM/DARKO got league
+    #      medians substituted, so his estimate rests partly on invented
+    #      inputs -- confident-looking, but less earned.
+    #   3. Rookie-scale extrapolation. The model trains on veterans only,
+    #      so rookie predictions sit outside the training distribution.
+    #
+    # Reported separately from the verdict on purpose: "Leaning overpaid,
+    # low confidence" is a genuinely different statement from "Leaning
+    # overpaid, high confidence," and collapsing them would hide that.
+    rel_width = np.where(point_pred > 0, (high_pred - low_pred) / point_pred, np.nan)
+    df["estimate_rel_width"] = rel_width
+
+    penalty = np.zeros(len(df))
+    if "n_production_metrics_available" in df.columns:
+        n_metrics = pd.to_numeric(df["n_production_metrics_available"], errors="coerce")
+        penalty += np.where(n_metrics.fillna(0) < 3, 1, 0)
+    if "contract_type" in df.columns:
+        penalty += np.where(df["contract_type"].eq("Rookie Scale"), 1, 0)
+
+    # Base tier from interval width, then demote for each penalty.
+    base = np.select([rel_width <= 1.0, rel_width <= 2.0], [2, 1], default=0)
+    score = np.clip(base - penalty, 0, 2)
+    df["estimate_confidence"] = np.select(
+        [np.isnan(rel_width), score >= 2, score == 1],
+        ["Unknown", "High", "Medium"],
+        default="Low",
+    )
+
     cap = df[SALARY_FIELD_FOR_REGRESSION]
     df["market_value_verdict"] = np.select(
         [

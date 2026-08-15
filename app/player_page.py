@@ -213,6 +213,22 @@ def render_player_page(df, default_player: str | None = None, compact: bool = Fa
                 "well within the model's margin of error -- read it as fairly paid."
             )
 
+        # Confidence is about the ESTIMATE, not the direction -- worth
+        # calling out separately, since a leaning call backed by a
+        # low-confidence estimate is much weaker than the same call
+        # backed by a sharp one.
+        conf = row.get("estimate_confidence")
+        if conf == "Low":
+            st.caption(
+                "⚠️ **Low confidence estimate** -- wide prediction interval, and/or "
+                "missing input metrics or rookie-scale extrapolation. Treat the "
+                "direction as a hint, not a finding."
+            )
+        elif conf == "Medium":
+            st.caption("**Medium confidence estimate** -- usable, but not a sharp read.")
+        elif conf == "High":
+            st.caption("**High confidence estimate** -- narrow interval, complete inputs.")
+
     st.markdown(_DIVIDER_HTML, unsafe_allow_html=True)
 
     # --- Headline: Market Value Surplus / Value Score / Est. Market Value --

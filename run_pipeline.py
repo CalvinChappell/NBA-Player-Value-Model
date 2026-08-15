@@ -75,6 +75,8 @@ SUMMARY_COLUMNS = [
     "estimated_market_value_inner_high",
     "market_value_surplus",
     "market_value_verdict",
+    "estimate_confidence",
+    "estimate_rel_width",
     "salary_tier",
     "pct_of_max",
     "is_max_contract",
@@ -108,9 +110,11 @@ def main():
             "estimated_market_value_inner_low",
             "estimated_market_value_inner_high",
             "market_value_surplus",
+            "estimate_rel_width",
         ):
             df[col] = pd.NA
         df["market_value_verdict"] = "Unknown"
+        df["estimate_confidence"] = "Unknown"
 
     # Percentile versions of the derived metrics (value score, market value
     # surplus, estimated market value) -- these only exist after the steps

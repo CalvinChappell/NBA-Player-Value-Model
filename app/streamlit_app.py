@@ -162,14 +162,17 @@ def _active_filter_summary():
         ("Position", st.session_state.get("f_posgroup", "All")),
         ("Verdict", st.session_state.get("f_verdict", "All")),
         ("Tier", st.session_state.get("f_tier", "All")),
+        ("Confidence", st.session_state.get("f_conf", "All")),
     ]:
         if val and val != "All":
             # The conclusive-only option has a long explanatory label;
             # abbreviate it so the collapsed header stays readable.
-            if str(val).startswith("Conclusive"):
+            # Check the "+" variant FIRST -- both start with "Conclusive",
+            # so the broader test would swallow it otherwise.
+            if str(val).startswith("Conclusive +"):
+                val = "Conclusive + Leaning"
+            elif str(val).startswith("Conclusive"):
                 val = "Conclusive only"
-            elif str(val).startswith("Any signal"):
-                val = "Any signal"
             bits.append(f"{label}: {val}")
     name = st.session_state.get("f_search", "")
     if name:
@@ -214,7 +217,7 @@ with st.expander(f"Filters  ({_active_filter_summary()})", expanded=False):
     # ~20% of players under contract, which is by design -- an 80%
     # interval is built to contain most of the league.
     _CONCLUSIVE = "Conclusive only (Under + Overpaid)"
-    _DIRECTIONAL = "Any signal (incl. Leaning)"
+    _DIRECTIONAL = "Conclusive + Leaning"
     verdict_options = [
         "All", _CONCLUSIVE, _DIRECTIONAL,
         "Underpaid", "Leaning underpaid", "Fairly paid", "Leaning overpaid", "Overpaid",
@@ -245,7 +248,21 @@ with st.expander(f"Filters  ({_active_filter_summary()})", expanded=False):
 
     # Player search in the top nav jumps to a player page; this one is a
     # leaderboard filter, which is a different job.
-    search = fr2[2].text_input("Filter by name", key="f_search")
+    conf_options = ["All", "High", "Medium", "Low"]
+    conf_choice = fr2[2].selectbox(
+        "Estimate confidence",
+        conf_options,
+        key="f_conf",
+        help=(
+            "How much to trust this player's $-estimate, based on how wide his "
+            "prediction interval is plus whether any inputs were missing or "
+            "extrapolated. Independent of the verdict -- a 'Leaning overpaid, Low "
+            "confidence' player is a much weaker call than a high-confidence one."
+        ),
+    )
+
+    fr3 = st.columns(3)
+    search = fr3[0].text_input("Filter by name", key="f_search")
 
     min_minutes = st.slider(
         "Minimum minutes played",
@@ -285,6 +302,8 @@ if verdict_choice != "All" and "market_value_verdict" in filtered.columns:
         filtered = filtered[filtered["market_value_verdict"] == verdict_choice]
 if tier_choice != "All" and "salary_tier" in filtered.columns:
     filtered = filtered[filtered["salary_tier"] == tier_choice]
+if conf_choice != "All" and "estimate_confidence" in filtered.columns:
+    filtered = filtered[filtered["estimate_confidence"] == conf_choice]
 if search:
     filtered = filtered[filtered["player"].str.contains(search, case=False, na=False)]
 
@@ -442,6 +461,7 @@ _COLUMN_LABELS = {
     "estimated_market_value_low": "Est. Value (low)",
     "estimated_market_value_high": "Est. Value (high)",
     "market_value_verdict": "Verdict",
+    "estimate_confidence": "Confidence", "estimate_rel_width": "Interval Width (x est.)",
     "salary_tier": "Salary Tier", "pct_of_max": "% of Max",
     "is_max_contract": "At Max", "rank_in_salary_tier": "Rank in Tier",
     "n_in_salary_tier": "Players in Tier", "max_salary_for_tier": "Tier Max",
@@ -632,17 +652,17 @@ st.subheader("Player table")
 # on every tab, per Calvin's request that both stay primary,
 # front-and-center metrics everywhere -- not just their own dedicated tab.
 _BASIC_STATS_COLUMNS = [
-    "player", "team", "pos", "market_value_verdict", "market_value_surplus", "value_score",
+    "player", "team", "pos", "market_value_verdict", "estimate_confidence", "market_value_surplus", "value_score",
     "production_pctile", "AGE", "experience", "contract_type", "GP", "MP",
     "PPG", "RPG", "APG", "SPG", "BPG", "FG_PCT", "FG3_PCT", "FT_PCT",
 ]
 _ADVANCED_METRICS_COLUMNS = [
-    "player", "team", "pos", "market_value_verdict", "market_value_surplus", "value_score",
+    "player", "team", "pos", "market_value_verdict", "estimate_confidence", "market_value_surplus", "value_score",
     "production_pctile", "OBPM", "DBPM", "BPM", "EPM", "DARKO",
     "OnBall_Pct", "rTS_rel", "RAPM_3Y", "PVAL", "NET_ON_OFF", "Rim_Scoring_Value", "FoulDraw_Value",
 ]
 _CONTRACT_COLUMNS = [
-    "player", "team", "pos", "market_value_surplus", "market_value_verdict", "salary_tier", "cap_hit", "estimated_market_value",
+    "player", "team", "pos", "market_value_surplus", "market_value_verdict", "estimate_confidence", "salary_tier", "cap_hit", "estimated_market_value",
     "value_score", "production_pctile", "contract_type", "salary_pctile", "value_ratio",
     "years_remaining", "total_guaranteed", "bird_rights_status",
 ]
@@ -655,7 +675,7 @@ _SORT_CANDIDATES = ["market_value_surplus", "value_score", "production_pctile", 
 # without horizontal scrolling on a phone. The full data is always still
 # one toggle (or one CSV download) away.
 _COMPACT_COLUMNS = {
-    "basic": ["player", "team", "market_value_verdict", "market_value_surplus", "value_score", "PPG"],
+    "basic": ["player", "team", "market_value_verdict", "estimate_confidence", "market_value_surplus", "value_score", "PPG"],
     "advanced": ["player", "team", "market_value_verdict", "production_pctile", "BPM", "EPM", "DARKO"],
     "contract": ["player", "team", "market_value_verdict", "market_value_surplus", "cap_hit"],
 }
