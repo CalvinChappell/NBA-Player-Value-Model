@@ -336,13 +336,27 @@ if _has_surplus:
         headline_cols[2].metric("Biggest overpay", "-", help="No players outside the model's interval.")
 
     n_conclusive = len(under) + len(over)
+    # Denominator excludes players with no cap hit on file (free agents,
+    # verdict "Unknown") -- they can never be conclusive, so counting
+    # them understates the rate and makes the model look less decisive
+    # than it is.
+    if "market_value_verdict" in filtered.columns:
+        n_scored = int((filtered["market_value_verdict"] != "Unknown").sum())
+    else:
+        n_scored = len(filtered)
+    share = (n_conclusive / n_scored * 100) if n_scored else 0
+
     headline_cols[3].metric(
         "Conclusive calls",
-        f"{n_conclusive} of {len(filtered)}",
+        f"{n_conclusive} of {n_scored}",
+        delta=f"{share:.0f}% of players under contract",
+        delta_color="off",
         help=(
-            "Players whose cap hit falls outside the model's 80% prediction interval. "
-            "Everyone else is within the model's margin of error -- their surplus "
-            "figure shouldn't be read as a finding."
+            "Players whose cap hit falls OUTSIDE the model's 80% prediction interval. "
+            "Roughly 20% is the expected rate -- an 80% interval is designed to contain "
+            "most players. The rest sit within the model's margin of error, so their "
+            "surplus figure shouldn't be read as a finding. Free agents (no cap hit) "
+            "are excluded from the denominator."
         ),
     )
 else:
