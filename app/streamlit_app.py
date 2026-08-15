@@ -164,6 +164,10 @@ def _active_filter_summary():
         ("Tier", st.session_state.get("f_tier", "All")),
     ]:
         if val and val != "All":
+            # The conclusive-only option has a long explanatory label;
+            # abbreviate it so the collapsed header stays readable.
+            if str(val).startswith("Conclusive"):
+                val = "Conclusive only"
             bits.append(f"{label}: {val}")
     name = st.session_state.get("f_search", "")
     if name:
@@ -203,7 +207,12 @@ with st.expander(f"Filters  ({_active_filter_summary()})", expanded=False):
     )
     team_choice = fr1[2].selectbox("Team", teams, key="f_team")
 
-    verdict_options = ["All", "Underpaid", "Fairly paid", "Overpaid"]
+    # "Conclusive only" is the high-signal view: everyone the model can
+    # actually distinguish from fairly paid, in either direction. Usually
+    # ~20% of players under contract, which is by design -- an 80%
+    # interval is built to contain most of the league.
+    _CONCLUSIVE = "Conclusive only (Under + Overpaid)"
+    verdict_options = ["All", _CONCLUSIVE, "Underpaid", "Fairly paid", "Overpaid"]
     verdict_choice = fr2[0].selectbox(
         "Value verdict",
         verdict_options,
@@ -211,7 +220,8 @@ with st.expander(f"Filters  ({_active_filter_summary()})", expanded=False):
         help=(
             "Based on whether a player's cap hit falls outside the $-model's 80% "
             "prediction interval. 'Fairly paid' means the model can't distinguish "
-            "them from fair value."
+            "them from fair value -- pick 'Conclusive only' to hide those and see "
+            "just the calls the model stands behind."
         ),
     )
 
@@ -257,7 +267,10 @@ if team_choice != "All":
     is_fa = filtered["is_free_agent"] if "is_free_agent" in filtered.columns else False
     filtered = filtered[(filtered["team"] == team_choice) & (~is_fa)]
 if verdict_choice != "All" and "market_value_verdict" in filtered.columns:
-    filtered = filtered[filtered["market_value_verdict"] == verdict_choice]
+    if verdict_choice == _CONCLUSIVE:
+        filtered = filtered[filtered["market_value_verdict"].isin(["Underpaid", "Overpaid"])]
+    else:
+        filtered = filtered[filtered["market_value_verdict"] == verdict_choice]
 if tier_choice != "All" and "salary_tier" in filtered.columns:
     filtered = filtered[filtered["salary_tier"] == tier_choice]
 if search:
