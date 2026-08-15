@@ -380,6 +380,8 @@ _COLUMN_LABELS = {
     "USG_PCT": "Usage %", "TS_PCT": "TS%",
     # databallr playstyle metrics
     "OnBall_Pct": "OnBall %", "rTS_rel": "rTS% (relative true shooting)",
+    "OnBall_Pct_pctile": "OnBall % (percentile)",
+    "rTS_rel_pctile": "rTS% (percentile)",
     "RAPM_3Y": "3Y RAPM", "PVAL": "PVAL", "NET_ON_OFF": "Net On/Off",
     # Skill value composites
     "FoulDraw_Value": "Foul-Drawing Value", "FTr": "Free Throw Rate",
@@ -429,7 +431,13 @@ _CHART_CONFIG = {"displayModeBar": not compact_view, "scrollZoom": False}
 def _hover(cols: list) -> list:
     """Trim hover fields on mobile -- a 7-row tooltip runs off the edge
     of a phone screen and covers the chart you're trying to read.
+
+    Also drops columns that aren't in the data. The deployed build reads
+    the public CSV, which has the raw third-party metrics stripped out
+    (see make_public_data.py), and Plotly raises rather than skipping if
+    you hand it a column that doesn't exist.
     """
+    cols = [c for c in cols if c in filtered.columns]
     return cols[:2] if compact_view else cols
 
 
@@ -535,26 +543,42 @@ with tab3:
     st.caption("Where value tends to concentrate across the aging curve -- above the dashed line is a bargain at that age.")
 
 with tab4:
+    # Prefer raw values (local build), fall back to percentile ranks
+    # (deployed build, where make_public_data.py strips the raw
+    # databallr values but keeps the percentiles). The chart reads the
+    # same either way -- only the axis units change.
     if {"OnBall_Pct", "rTS_rel"}.issubset(filtered.columns):
+        x_col, y_col = "OnBall_Pct", "rTS_rel"
+        axis_note = ""
+    elif {"OnBall_Pct_pctile", "rTS_rel_pctile"}.issubset(filtered.columns):
+        x_col, y_col = "OnBall_Pct_pctile", "rTS_rel_pctile"
+        axis_note = " Axes are percentile ranks."
+    else:
+        x_col = y_col = None
+
+    if x_col:
         fig = px.scatter(
             filtered,
-            x="OnBall_Pct",
-            y="rTS_rel",
+            x=x_col,
+            y=y_col,
             color="production_pctile",
             color_continuous_scale=_MEDAL_SCALE,
             hover_name="player",
             hover_data=_hover(["team", "contract_type", "PVAL", "RAPM_3Y", "NET_ON_OFF"]),
             labels=_COLUMN_LABELS,
         )
+        # Reference line: zero for raw rTS% (league average), 50 for the
+        # percentile version (median).
+        midline = 0 if y_col == "rTS_rel" else 50
         fig.add_shape(
             type="line",
-            x0=filtered["OnBall_Pct"].min(), x1=filtered["OnBall_Pct"].max(),
-            y0=0, y1=0, line=dict(dash="dash", color="#4B5563"),
+            x0=filtered[x_col].min(), x1=filtered[x_col].max(),
+            y0=midline, y1=midline, line=dict(dash="dash", color="#4B5563"),
         )
         st.plotly_chart(_themed(fig), width="stretch", config=_CHART_CONFIG)
         st.caption(
-            "Playstyle showcase: high OnBall% + high rTS% = efficient, high-usage shot creators. "
-            "Colored by production percentile."
+            "Playstyle showcase: high OnBall% + high rTS% = efficient, high-usage shot "
+            "creators. Colored by production percentile." + axis_note
         )
     else:
         st.info("databallr playstyle metrics not available -- add data/manual/databallr_metrics.csv and re-run the pipeline.")

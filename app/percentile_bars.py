@@ -102,7 +102,16 @@ def render_percentile_bars(stats: list[tuple[str, str, float]], height_per_row: 
             x=[103] * len(labels),
             y=labels,
             mode="text",
-            text=[f"{pl}  ({rv})" for pl, rv in zip(pct_labels, raw_values)],
+            # Show "88  (4.2)" when we have the raw value, but just "88"
+            # when we don't. The deployed build reads the public CSV,
+            # which strips raw values for gated third-party metrics (see
+            # make_public_data.py) while keeping percentiles -- rendering
+            # "88  (--)" there would look like a bug rather than a
+            # deliberate omission.
+            text=[
+                f"{pl}  ({rv})" if rv not in ("--", "", None) else f"{pl}"
+                for pl, rv in zip(pct_labels, raw_values)
+            ],
             textposition="middle right",
             textfont=dict(size=13, color=TEXT),
             hoverinfo="skip",
