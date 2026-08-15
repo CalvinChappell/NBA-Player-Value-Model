@@ -30,6 +30,7 @@ SUMMARY_COLUMNS = [
     "pos_group",
     "AGE",
     "experience",
+    "experience_is_estimated",
     "contract_type",
     "GP",
     "MP",
@@ -70,6 +71,8 @@ SUMMARY_COLUMNS = [
     "estimated_market_value",
     "estimated_market_value_low",
     "estimated_market_value_high",
+    "estimated_market_value_inner_low",
+    "estimated_market_value_inner_high",
     "market_value_surplus",
     "market_value_verdict",
     "salary_tier",
@@ -102,6 +105,8 @@ def main():
             "estimated_market_value",
             "estimated_market_value_low",
             "estimated_market_value_high",
+            "estimated_market_value_inner_low",
+            "estimated_market_value_inner_high",
             "market_value_surplus",
         ):
             df[col] = pd.NA

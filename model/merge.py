@@ -16,12 +16,19 @@ who wants to join in still more sources later.
 
 import pandas as pd
 
-from config import DRAFT_CLASSES_TO_SCRAPE, MANUAL_DIR, ROOKIE_SCALE_MAX_EXPERIENCE, SEASON_END_YEAR
+from config import (
+    DRAFT_CLASSES_TO_SCRAPE,
+    MANUAL_DIR,
+    ROOKIE_SCALE_MAX_EXPERIENCE,
+    SEASON_END_YEAR,
+    SEASONS_FOR_EXPERIENCE,
+)
 from scrapers import (
     bref_advanced,
     bref_contracts,
     bref_draft,
     bref_pergame,
+    bref_seasons_played,
     bref_shooting,
     external_metrics,
 )
@@ -59,6 +66,11 @@ def build_master_table(season_end_year: int = SEASON_END_YEAR) -> pd.DataFrame:
     print(f"Scraping {DRAFT_CLASSES_TO_SCRAPE} draft classes (for experience / rookie-scale flag)...")
     draft = bref_draft.scrape_recent_draft_classes(season_end_year, num_classes=DRAFT_CLASSES_TO_SCRAPE)
 
+    print(f"Counting seasons played across {SEASONS_FOR_EXPERIENCE} seasons (covers undrafted players)...")
+    seasons = bref_seasons_played.scrape_seasons_played(
+        season_end_year, num_seasons=SEASONS_FOR_EXPERIENCE
+    )
+
     print("Loading manual EPM / DARKO / LEBRON CSVs (if present)...")
     external = external_metrics.load_all_manual_metrics()
 
@@ -81,6 +93,10 @@ def build_master_table(season_end_year: int = SEASON_END_YEAR) -> pd.DataFrame:
         on="name_key",
         how="left",
     )
+    if not seasons.empty:
+        df = df.merge(seasons, on="name_key", how="left")
+    else:
+        df["seasons_played"] = pd.NA
     if not external.empty:
         df = df.merge(external, on="name_key", how="left")
     else:
@@ -101,7 +117,13 @@ def build_master_table(season_end_year: int = SEASON_END_YEAR) -> pd.DataFrame:
 
     # Experience + rookie/vet classification (see config.ROOKIE_SCALE_MAX_EXPERIENCE
     # for the cutoff, and the module docstring in scrapers/bref_draft.py for caveats).
-    df["experience"] = season_end_year - df["draft_year"]
+    # Prefer draft-year math (accurate years of service for drafted
+    # players); fall back to counted seasons for undrafted players, who
+    # have no draft row at all. See scrapers/bref_seasons_played.py.
+    _from_draft = season_end_year - df["draft_year"]
+    _from_seasons = pd.to_numeric(df.get("seasons_played"), errors="coerce")
+    df["experience"] = _from_draft.where(_from_draft.notna(), _from_seasons)
+    df["experience_is_estimated"] = _from_draft.isna() & _from_seasons.notna()
     df["contract_type"] = df["contract_type"].where(
         df["contract_type"].notna(),
         df["experience"].apply(

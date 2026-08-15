@@ -59,6 +59,12 @@ ROOKIE_SCALE_MAX_EXPERIENCE = 4
 # ~25 extra (cached-after-first-run) requests to Basketball-Reference.
 DRAFT_CLASSES_TO_SCRAPE = 25
 
+# How many past seasons to scan when counting seasons played, which is
+# how undrafted players get an experience value at all (they have no
+# draft class to subtract from). 20 covers all but the longest careers,
+# and every page is cached after the first run.
+SEASONS_FOR_EXPERIENCE = 20
+
 # ---------------------------------------------------------------------------
 # Which metrics feed the composite "production score" used for percentiles
 # and the value score. Any metric not present for a player (e.g. missing
@@ -188,6 +194,24 @@ SALARY_FIELD_FOR_REGRESSION = "cap_hit"
 # can check that claim rather than take it on faith.
 MARKET_VALUE_INTERVAL_LOW = 0.10
 MARKET_VALUE_INTERVAL_HIGH = 0.90
+
+# Inner ("leaning") coverage level. The 80% interval above is a
+# deliberately high bar -- it only fires when a salary is extreme
+# relative to the prediction, which means mid-tier players where the
+# model is least precise almost never get a call, even when the point
+# estimate points clearly one way.
+#
+# Example that motivated this: a player with a $15.2M cap hit against a
+# $10.0M estimate -- the model's central guess is "overpaid by $5M" --
+# still landed inside an 80% interval spanning $2.7M to $21.9M, and so
+# came out "Fairly paid." Directionally clear, verdict silent.
+#
+# So we compute a second, narrower band and report three levels of
+# confidence instead of two:
+#     outside the 80% band  -> "Overpaid" / "Underpaid"     (confident)
+#     outside the 50% band  -> "Leaning overpaid/underpaid" (probable)
+#     inside the 50% band   -> "Fairly paid"
+MARKET_VALUE_INNER_COVERAGE = 0.50
 
 # Number of folds for cross-conformal calibration. A plain
 # train/calibration/test split wastes data -- with only ~170 veterans it

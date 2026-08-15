@@ -80,6 +80,7 @@ from sklearn.metrics import r2_score
 
 from config import (
     MARKET_VALUE_CV_FOLDS,
+    MARKET_VALUE_INNER_COVERAGE,
     MARKET_VALUE_INTERVAL_HIGH,
     MARKET_VALUE_INTERVAL_LOW,
     MARKET_VALUE_LOG_TRANSFORM,
@@ -180,10 +181,30 @@ def fit_market_value_model(df: pd.DataFrame, min_minutes: int = 500):
     r2_model_space = r2_score(y, oof_point)
 
     scores = np.maximum(oof_lo - y, y - oof_hi)
-    alpha = 1.0 - (MARKET_VALUE_INTERVAL_HIGH - MARKET_VALUE_INTERVAL_LOW)
     n_cal = len(scores)
-    level = min(1.0, np.ceil((n_cal + 1) * (1 - alpha)) / n_cal)
-    conformal_q = max(float(np.quantile(scores, level, method="higher")), 0.0)
+
+    def _conformal_q(target_coverage: float, allow_shrink: bool) -> float:
+        """Conformal correction for a given target coverage.
+
+        The same conformity-score distribution supports ANY coverage
+        level -- you just read a different quantile off it. That's what
+        makes the inner ("leaning") band nearly free: no extra model
+        fits, just a second lookup.
+
+        For the outer band we never shrink (allow_shrink=False), since
+        shrinking a nominal 80% interval would undercut the guarantee we
+        actually advertise. For the inner band shrinking is the whole
+        point -- a negative correction pulls the 10th/90th percentile
+        predictions inward to approximate a 50% band.
+        """
+        alpha = 1.0 - target_coverage
+        level = min(1.0, np.ceil((n_cal + 1) * (1 - alpha)) / n_cal)
+        q = float(np.quantile(scores, level, method="higher"))
+        return q if allow_shrink else max(q, 0.0)
+
+    outer_coverage = MARKET_VALUE_INTERVAL_HIGH - MARKET_VALUE_INTERVAL_LOW
+    conformal_q = _conformal_q(outer_coverage, allow_shrink=False)
+    conformal_q_inner = _conformal_q(MARKET_VALUE_INNER_COVERAGE, allow_shrink=True)
 
     # Coverage measured on the same out-of-fold predictions. This is a
     # fair estimate (each prediction came from a model blind to that
@@ -192,6 +213,11 @@ def fit_market_value_model(df: pd.DataFrame, min_minutes: int = 500):
     cov_lo = oof_lo - conformal_q
     cov_hi = oof_hi + conformal_q
     coverage = float(((y >= cov_lo) & (y <= cov_hi)).mean())
+
+    inner_lo = oof_lo - conformal_q_inner
+    inner_hi = oof_hi + conformal_q_inner
+    inner_lo, inner_hi = np.minimum(inner_lo, inner_hi), np.maximum(inner_lo, inner_hi)
+    inner_coverage = float(((y >= inner_lo) & (y <= inner_hi)).mean())
 
     width_dollars = _from_model_space(cov_hi) - _from_model_space(cov_lo)
     median_width = float(np.median(width_dollars))
@@ -204,6 +230,9 @@ def fit_market_value_model(df: pd.DataFrame, min_minutes: int = 500):
     nominal = MARKET_VALUE_INTERVAL_HIGH - MARKET_VALUE_INTERVAL_LOW
     diagnostics = {
         "holdout_r2": holdout_r2,
+        "inner_coverage": inner_coverage,
+        "inner_nominal": MARKET_VALUE_INNER_COVERAGE,
+        "conformal_q_inner": conformal_q_inner,
         "r2_model_space": r2_model_space,
         "coverage": coverage,
         "nominal_coverage": nominal,
@@ -214,7 +243,10 @@ def fit_market_value_model(df: pd.DataFrame, min_minutes: int = 500):
         "log_space": MARKET_VALUE_LOG_TRANSFORM,
     }
 
-    models = {"point": point, "low": low, "high": high, "conformal_q": conformal_q}
+    models = {
+        "point": point, "low": low, "high": high,
+        "conformal_q": conformal_q, "conformal_q_inner": conformal_q_inner,
+    }
     return models, features, diagnostics
 
 
@@ -236,6 +268,10 @@ def add_market_value_estimate(df: pd.DataFrame) -> pd.DataFrame:
         f"{diag['coverage'] * 100:.1f}% of players (n={diag['n_train']}); "
         f"median width ${diag['median_width']:,.0f}"
     )
+    print(
+        f"  {int(diag['inner_nominal'] * 100)}% inner band covered "
+        f"{diag['inner_coverage'] * 100:.1f}% -- used for 'Leaning' verdicts"
+    )
     if diag["coverage"] < diag["nominal_coverage"] - 0.10:
         print(
             "  WARNING: coverage below nominal -- intervals are too narrow. "
@@ -250,14 +286,29 @@ def add_market_value_estimate(df: pd.DataFrame) -> pd.DataFrame:
     X_all = df[features].apply(lambda col: col.fillna(col.median()))
 
     q = models["conformal_q"]
+    q_inner = models["conformal_q_inner"]
     # Widening is applied in MODEL space (log dollars if enabled), then
     # transformed back -- which is what makes the interval asymmetric in
     # dollar terms: a proportional band, wide at the top of the salary
     # scale and tight at the bottom, matching how salary error actually
     # behaves.
+    raw_lo = models["low"].predict(X_all)
+    raw_hi = models["high"].predict(X_all)
+
     point_pred = _from_model_space(models["point"].predict(X_all))
-    low_pred = _from_model_space(models["low"].predict(X_all) - q)
-    high_pred = _from_model_space(models["high"].predict(X_all) + q)
+    low_pred = _from_model_space(raw_lo - q)
+    high_pred = _from_model_space(raw_hi + q)
+
+    # Inner band: same base quantiles, smaller (often negative)
+    # correction, giving a narrower ~50% interval for "leaning" calls.
+    inner_lo_raw = raw_lo - q_inner
+    inner_hi_raw = raw_hi + q_inner
+    inner_lo_raw, inner_hi_raw = (
+        np.minimum(inner_lo_raw, inner_hi_raw),
+        np.maximum(inner_lo_raw, inner_hi_raw),
+    )
+    inner_low = _from_model_space(inner_lo_raw)
+    inner_high = _from_model_space(inner_hi_raw)
 
     # Quantile models are fit independently and can cross on individual
     # rows; enforce low <= point <= high so the interval always reads
@@ -269,14 +320,35 @@ def add_market_value_estimate(df: pd.DataFrame) -> pd.DataFrame:
     df["estimated_market_value"] = point_pred
     df["estimated_market_value_low"] = low_pred
     df["estimated_market_value_high"] = high_pred
+    df["estimated_market_value_inner_low"] = inner_low
+    df["estimated_market_value_inner_high"] = inner_high
     df["market_value_surplus"] = df["estimated_market_value"] - df[SALARY_FIELD_FOR_REGRESSION]
 
-    # Verdict based on the INTERVAL, not the point estimate: a surplus
-    # that sits inside the model's own uncertainty band isn't a finding.
+    # Three-level verdict rather than two. Order matters -- np.select
+    # takes the FIRST matching condition, so the confident (80%) checks
+    # must come before the leaning (50%) ones.
+    #
+    # The middle tier exists because an 80% interval is a high bar: a
+    # player can have a clearly-directional point estimate and still land
+    # inside it, which previously reported as "Fairly paid" and threw the
+    # signal away. "Leaning" says what the model thinks while being
+    # honest that it can't rule out fair value.
     cap = df[SALARY_FIELD_FOR_REGRESSION]
     df["market_value_verdict"] = np.select(
-        [cap.isna(), cap < low_pred, cap > high_pred],
-        ["Unknown", "Underpaid", "Overpaid"],
+        [
+            cap.isna(),
+            cap < low_pred,            # below the 80% band -> confident
+            cap > high_pred,           # above the 80% band -> confident
+            cap < inner_low,           # below the 50% band -> probable
+            cap > inner_high,          # above the 50% band -> probable
+        ],
+        [
+            "Unknown",
+            "Underpaid",
+            "Overpaid",
+            "Leaning underpaid",
+            "Leaning overpaid",
+        ],
         default="Fairly paid",
     )
 

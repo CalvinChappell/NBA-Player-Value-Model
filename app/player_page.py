@@ -143,6 +143,10 @@ def render_player_page(df, default_player: str | None = None, compact: bool = Fa
             delta_txt, delta_color = "Underpaid", "normal"
         elif verdict == "Overpaid":
             delta_txt, delta_color = "Overpaid", "inverse"
+        elif verdict == "Leaning underpaid":
+            delta_txt, delta_color = "Leaning underpaid", "normal"
+        elif verdict == "Leaning overpaid":
+            delta_txt, delta_color = "Leaning overpaid", "inverse"
         else:
             delta_txt, delta_color = "Within model range", "off"
         v3.metric(
@@ -184,18 +188,29 @@ def render_player_page(df, default_player: str | None = None, compact: bool = Fa
             "inflate it. Treat the surplus as indicative at best."
         )
 
+    inner_lo = row.get("estimated_market_value_inner_low")
+    inner_hi = row.get("estimated_market_value_inner_high")
+
     if lo is not None and lo == lo and hi is not None and hi == hi:
-        if verdict == "Fairly paid":
+        band = f"Model's 80% range: **{_fmt(lo, 'money')} – {_fmt(hi, 'money')}**"
+        if inner_lo is not None and inner_lo == inner_lo:
+            band += f" · 50% range: **{_fmt(inner_lo, 'money')} – {_fmt(inner_hi, 'money')}**"
+
+        if verdict in ("Underpaid", "Overpaid"):
             st.caption(
-                f"Model's 80% range: **{_fmt(lo, 'money')} – {_fmt(hi, 'money')}**. "
-                f"This cap hit falls inside that range, so the surplus above is within "
-                "the model's margin of error -- read it as fairly paid, not as a bargain."
+                f"{band}. This cap hit falls outside the 80% range -- a call the model "
+                "supports with confidence."
+            )
+        elif verdict in ("Leaning underpaid", "Leaning overpaid"):
+            direction = "below" if verdict == "Leaning underpaid" else "above"
+            st.caption(
+                f"{band}. This cap hit falls {direction} the 50% range but inside the 80% "
+                "one -- the model leans this way without being able to rule out fair value."
             )
         else:
             st.caption(
-                f"Model's 80% range: **{_fmt(lo, 'money')} – {_fmt(hi, 'money')}**. "
-                f"This cap hit falls outside that range, so the gap is a call the model "
-                "actually supports."
+                f"{band}. This cap hit falls inside the 50% range, so the surplus above is "
+                "well within the model's margin of error -- read it as fairly paid."
             )
 
     st.markdown(_DIVIDER_HTML, unsafe_allow_html=True)

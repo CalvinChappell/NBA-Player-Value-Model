@@ -168,6 +168,8 @@ def _active_filter_summary():
             # abbreviate it so the collapsed header stays readable.
             if str(val).startswith("Conclusive"):
                 val = "Conclusive only"
+            elif str(val).startswith("Any signal"):
+                val = "Any signal"
             bits.append(f"{label}: {val}")
     name = st.session_state.get("f_search", "")
     if name:
@@ -212,7 +214,11 @@ with st.expander(f"Filters  ({_active_filter_summary()})", expanded=False):
     # ~20% of players under contract, which is by design -- an 80%
     # interval is built to contain most of the league.
     _CONCLUSIVE = "Conclusive only (Under + Overpaid)"
-    verdict_options = ["All", _CONCLUSIVE, "Underpaid", "Fairly paid", "Overpaid"]
+    _DIRECTIONAL = "Any signal (incl. Leaning)"
+    verdict_options = [
+        "All", _CONCLUSIVE, _DIRECTIONAL,
+        "Underpaid", "Leaning underpaid", "Fairly paid", "Leaning overpaid", "Overpaid",
+    ]
     verdict_choice = fr2[0].selectbox(
         "Value verdict",
         verdict_options,
@@ -269,6 +275,12 @@ if team_choice != "All":
 if verdict_choice != "All" and "market_value_verdict" in filtered.columns:
     if verdict_choice == _CONCLUSIVE:
         filtered = filtered[filtered["market_value_verdict"].isin(["Underpaid", "Overpaid"])]
+    elif verdict_choice == _DIRECTIONAL:
+        filtered = filtered[
+            filtered["market_value_verdict"].isin(
+                ["Underpaid", "Overpaid", "Leaning underpaid", "Leaning overpaid"]
+            )
+        ]
     else:
         filtered = filtered[filtered["market_value_verdict"] == verdict_choice]
 if tier_choice != "All" and "salary_tier" in filtered.columns:
@@ -413,6 +425,8 @@ _COLUMN_LABELS = {
     # Skill value composites
     "FoulDraw_Value": "Foul-Drawing Value", "FTr": "Free Throw Rate",
     "FTA_total": "Free Throw Attempts", "FTA_per36": "FTA per 36",
+    "estimated_market_value_inner_low": "Est. Value (inner low)",
+    "estimated_market_value_inner_high": "Est. Value (inner high)",
     "Rim_Scoring_Value": "Rim Scoring Value", "FG_PCT_rim": "FG% at Rim",
     "FGA_share_rim": "Rim Shot Share", "rim_FGA_total": "Rim Attempts",
     "rim_FGA_per36": "Rim Attempts per 36", "avg_shot_dist": "Avg Shot Distance",
@@ -678,9 +692,11 @@ _FORMAT_SPEC = {
 # value. Using discrete colors (rather than the continuous scale) keeps
 # the three categories visually distinct at a glance.
 _VERDICT_COLORS = {
-    "Underpaid": "rgb(212,175,55)",    # gold
-    "Fairly paid": "rgb(200,200,203)",  # silver
-    "Overpaid": "rgb(176,111,62)",      # bronze
+    "Underpaid": "rgb(212,175,55)",           # gold -- confident
+    "Leaning underpaid": "rgb(206,188,129)",  # gold/silver blend -- probable
+    "Fairly paid": "rgb(200,200,203)",        # silver
+    "Leaning overpaid": "rgb(188,156,133)",   # silver/bronze blend -- probable
+    "Overpaid": "rgb(176,111,62)",            # bronze -- confident
     "Unknown": None,
 }
 
