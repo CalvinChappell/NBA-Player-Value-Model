@@ -310,6 +310,25 @@ def add_market_value_estimate(df: pd.DataFrame) -> pd.DataFrame:
     inner_low = _from_model_space(inner_lo_raw)
     inner_high = _from_model_space(inner_hi_raw)
 
+    # --- Enforce low <= inner_low <= point <= inner_high <= high -------
+    # The point estimate is a random forest MEAN; the bounds come from
+    # separately-fit gradient-boosting QUANTILE models. Nothing in the
+    # math forces the point estimate inside its own interval, and when
+    # they disagree the output is self-contradictory: a player can show a
+    # negative surplus (point estimate below his cap hit, i.e. "overpaid")
+    # while the verdict reads "leaning underpaid" (cap hit below the
+    # band's lower bound). Both statements are about the same player and
+    # they point opposite ways.
+    #
+    # Clamping the bounds around the point estimate resolves it in favor
+    # of the point estimate, which is the number shown as Est. Market
+    # Value and the one the surplus is computed from -- so the surplus
+    # and the verdict can never disagree in direction again.
+    inner_low = np.minimum(inner_low, point_pred)
+    inner_high = np.maximum(inner_high, point_pred)
+    low_pred = np.minimum(low_pred, inner_low)
+    high_pred = np.maximum(high_pred, inner_high)
+
     # Quantile models are fit independently and can cross on individual
     # rows; enforce low <= point <= high so the interval always reads
     # sensibly.
