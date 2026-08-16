@@ -39,7 +39,7 @@ from utils.name_match import normalize_name
 
 _OVERRIDE_COLUMNS = [
     "name_key", "contract_type", "bird_rights_status", "cap_hit_override",
-    "team_override", "notes",
+    "team_override", "free_agent_override", "notes",
 ]
 
 
@@ -55,6 +55,19 @@ def _load_contract_overrides() -> pd.DataFrame:
     Beal's 2026 Suns buyout / Clippers re-signing). Hand-correcting one
     player here beats risking a dedup-logic change that could silently
     break someone else's correctly-scraped row.
+
+    free_agent_override exists for a related but distinct failure mode:
+    a player whose contracts-page row is simply STALE, not misattributed.
+    James Harden declined his $42.3M 2026-27 Clippers player option and
+    is a genuine free agent (working out a new deal with Cleveland, who
+    traded for him in February) as of this writing -- but the contracts
+    page hadn't dropped his old figure yet, so he scraped as if still
+    signed for $42.3M. Any non-null value in this column forces cap_hit
+    back to NaN for that player wherever it matters (build_master_table's
+    is_free_agent flag, and build_payroll_table's payroll total), rather
+    than trying to detect staleness automatically -- there's no reliable
+    signal on the page itself that distinguishes "still actually signed"
+    from "site hasn't updated yet."
     """
     path = MANUAL_DIR / "contract_overrides.csv"
     if not path.exists():
@@ -64,6 +77,8 @@ def _load_contract_overrides() -> pd.DataFrame:
         return pd.DataFrame(columns=_OVERRIDE_COLUMNS)
     if "team_override" not in df.columns:
         df["team_override"] = pd.NA
+    if "free_agent_override" not in df.columns:
+        df["free_agent_override"] = pd.NA
     df["name_key"] = df["player"].apply(normalize_name)
     return df.drop(columns=["player"])
 
@@ -174,6 +189,15 @@ def build_master_table(season_end_year: int = SEASON_END_YEAR) -> pd.DataFrame:
     # Basketball-Reference salary figure.
     df["cap_hit"] = df["cap_hit_override"].where(df["cap_hit_override"].notna(), df["cap_hit"])
 
+    # free_agent_override wins over everything else -- a stale contracts-
+    # page row (see _load_contract_overrides) shouldn't count as a real
+    # deal no matter what cap_hit_override says. Clearing cap_hit to NaN
+    # here is sufficient: is_free_agent below is derived from cap_hit, so
+    # this single line fixes the flag, the leaderboard, and the player
+    # page all at once.
+    if "free_agent_override" in df.columns:
+        df.loc[df["free_agent_override"].notna(), "cap_hit"] = pd.NA
+
     # Same idea for team_contract: a manual team_override wins if present.
     # See _load_contract_overrides for why this exists (buyout/re-signing
     # cases where Basketball-Reference's contracts page shows a stale or
@@ -213,6 +237,49 @@ def build_master_table(season_end_year: int = SEASON_END_YEAR) -> pd.DataFrame:
     )
 
     return df
+
+
+def build_payroll_table() -> pd.DataFrame:
+    """Every player with a signed 2026-27 contract, independent of whether
+    they have 2025-26 production stats.
+
+    build_master_table() anchors on Basketball-Reference's ADVANCED stats
+    table and left-joins contracts onto it -- the right shape for the
+    leaderboard, since there's no point ranking someone with no production
+    data. It's the wrong shape for Team Payroll: anyone who has a signed
+    contract but zero 2025-26 stats never enters that anchor table at all,
+    so their cap hit silently never counts toward any team's total. Two
+    real populations hit this every season: incoming rookies (signed for
+    2026-27, no NBA games played yet) and players who missed all of
+    2025-26 to injury but still hold real, often enormous, 2026-27
+    contracts -- e.g. Tyrese Haliburton, Kyrie Irving, Damian Lillard, and
+    Fred VanVleet all had season-ending injuries in 2025 and all vanish
+    from build_master_table() as a result, despite combining for close to
+    $150M in signed 2026-27 salary.
+
+    This sources straight off the contracts page instead, so every signed
+    player counts toward their team's total regardless of whether they
+    played last season. Still subject to the same team_override /
+    cap_hit_override corrections as build_master_table (see
+    _load_contract_overrides) -- including the Beal/Lillard/KCP/Prosper
+    stale-team cases, where the contracts page itself lists a player under
+    an old team alongside their new one with an identical dollar figure.
+    """
+    contracts = bref_contracts.scrape_player_contracts()
+    overrides = _load_contract_overrides()
+
+    df = contracts.merge(overrides, on="name_key", how="left")
+
+    df["cap_hit"] = df["cap_hit_override"].where(df["cap_hit_override"].notna(), df["cap_hit"])
+    df["team_contract"] = df["team_override"].where(df["team_override"].notna(), df["team"])
+
+    # Drop anyone flagged as a stale contracts-page row (see
+    # _load_contract_overrides) -- they're a free agent right now, not
+    # signed anywhere, and shouldn't count toward any team's total.
+    if "free_agent_override" in df.columns:
+        df = df[df["free_agent_override"].isna()]
+
+    return df[["name_key", "player", "team_contract", "cap_hit"]]
 
 
 def unmatched_report(df: pd.DataFrame) -> pd.DataFrame:
