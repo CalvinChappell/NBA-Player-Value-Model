@@ -146,6 +146,13 @@ if st.session_state.pop("_pending_clear", False):
     st.session_state["player_search"] = ""
     st.session_state["view"] = "Leaderboard"
 
+# Same deferred-write pattern again: the "Read Methodology" banner button
+# on the Leaderboard renders long after the nav radio widget exists, so it
+# can't set st.session_state["view"] directly either.
+_pending_view = st.session_state.pop("_pending_view", None)
+if _pending_view:
+    st.session_state["view"] = _pending_view
+
 
 def _jump_to_player():
     """Selecting a name in the search box switches to the Player Page.
@@ -200,6 +207,26 @@ if st.session_state["view"] == "Player Page":
 if st.session_state["view"] == "Methodology":
     render_methodology_page()
     st.stop()
+
+# --- Methodology callout ------------------------------------------------
+# Leaderboard stays the landing view on purpose -- the data itself is the
+# strongest first impression, and leading with a page of caveats before
+# anyone's seen a number risks reading as a disclaimer rather than a
+# feature. But the page it points to matters, so it gets an unmissable
+# banner right up top rather than being left to a nav tab someone might
+# not click.
+_banner_col, _banner_btn_col = st.columns([5, 2])
+with _banner_col:
+    st.info(
+        "New here? The **Methodology & Limitations** page explains how these numbers are "
+        "built and what they don't account for -- worth a read before treating any single "
+        "figure as a final answer."
+    )
+with _banner_btn_col:
+    st.write("")  # vertical nudge so the button lines up with the info box
+    if st.button("Read Methodology →", key="jump_to_methodology"):
+        st.session_state["_pending_view"] = "Methodology"
+        st.rerun()
 
 # --- Filters -----------------------------------------------------------
 # In the MAIN body rather than the sidebar, for the same reason the nav
