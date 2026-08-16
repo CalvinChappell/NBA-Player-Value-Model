@@ -68,11 +68,6 @@ def scrape_advanced_stats(season_end_year: int) -> pd.DataFrame:
                 "age": stat("age"),
                 "GP": stat("games"),  # bref renamed this from "g" to "games" at some point
                 "MP": stat("mp"),
-                # Free throw rate (FTA/FGA) -- the volume half of the
-                # Foul-Drawing Value metric (see model/value_metrics.py).
-                "FTr": stat("fta_per_fga_pct"),
-                "USG_PCT": stat("usg_pct"),
-                "TS_PCT": stat("ts_pct"),
                 "OBPM": stat("obpm"),
                 "DBPM": stat("dbpm"),
                 "BPM": stat("bpm"),
@@ -84,7 +79,7 @@ def scrape_advanced_stats(season_end_year: int) -> pd.DataFrame:
     if df.empty:
         raise RuntimeError("Parsed zero rows from the advanced-stats table -- check the cached HTML.")
 
-    numeric_cols = ["age", "GP", "MP", "FTr", "USG_PCT", "TS_PCT", "OBPM", "DBPM", "BPM", "VORP"]
+    numeric_cols = ["age", "GP", "MP", "OBPM", "DBPM", "BPM", "VORP"]
     for col in numeric_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     df = df.rename(columns={"age": "AGE"})
