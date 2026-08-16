@@ -149,12 +149,16 @@ def _scrape_playoff_advanced(season_end_year: int) -> pd.DataFrame:
             {
                 "player": player_cell.get_text(strip=True),
                 "team": stat("team_id") or stat("team_name_abbr"),
-                # "games" is the verified-correct attribute name here --
-                # same one bref_advanced.py uses for the regular-season
-                # advanced table (see its comment on the "g" -> "games"
-                # rename). This is now the ONLY source of playoff_GP; see
-                # the note in _scrape_playoff_pergame for why it moved.
-                "playoff_GP": stat("games"),
+                # Confirmed by inspecting the actual cached HTML: the
+                # regular-season advanced table was renamed from "g" to
+                # "games" at some point (see bref_advanced.py's comment on
+                # this), but that rename apparently did NOT carry over to
+                # the playoffs advanced table -- it still uses the old
+                # short form "g". Genuinely inconsistent across page
+                # types, not a typo -- verified directly against a real
+                # row (Wembanyama, 22 games) rather than assumed by
+                # analogy, after two wrong guesses in a row.
+                "playoff_GP": stat("g"),
                 "playoff_MP": stat("mp"),
                 "playoff_BPM": stat("bpm"),
             }
