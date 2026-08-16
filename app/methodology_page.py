@@ -73,6 +73,15 @@ correction for survivorship bias (players who declined tend to leave the
 league, which biases a naive "average performance by age" curve upward at
 the old end). That's a separate project, not a label.
 
+Related: the $-model's training pool of veterans thins out fast past the
+mid-30s, so its prediction interval for very late-career players (LeBron
+James being the clearest current example) can get extremely wide -- tens
+of millions of dollars wide -- simply because there's little precedent to
+anchor on. The player page flags this explicitly once age crosses a
+threshold, the same way it already flags rookie-scale extrapolation at
+the other end of a career. The direction of the estimate is usually still
+sound; the dollar range around it isn't.
+
 **Regular season only, with a new descriptive-only playoff split.** The
 Playoff Performance panel on each player page shows raw playoff per-game
 numbers next to regular-season ones, but deliberately isn't folded into

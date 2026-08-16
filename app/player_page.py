@@ -11,6 +11,7 @@ import streamlit as st
 
 from app.percentile_bars import render_percentile_bars
 from app.theme import TRACK
+from config import EXTREME_VETERAN_AGE_THRESHOLD
 
 _DIVIDER_HTML = f"<hr style='margin: 0.25rem 0 0.75rem 0; border-color: {TRACK};'>"
 
@@ -234,6 +235,22 @@ def render_player_page(df, default_player: str | None = None, compact: bool = Fa
                 "**Rookie-scale contract.** The $-model is trained on veterans only, so this "
                 "estimate extrapolates outside its training data -- minutes played tend to "
                 "inflate it. Treat the surplus as indicative at best."
+            )
+        )
+
+    # Same extrapolation problem as rookie scale, at the opposite end of a
+    # career: very few players are still active this late, so the model
+    # has little or nothing nearby to anchor on. Shows up as an unusually
+    # wide prediction interval (see estimate_confidence below) -- this
+    # warning explains WHY, rather than leaving the reader to guess.
+    _age = row.get("AGE")
+    if _age is not None and _age == _age and _age >= EXTREME_VETERAN_AGE_THRESHOLD:
+        st.warning(
+            _md(
+                f"**Age {_fmt(_age, 'int')}.** Very few players are still active this late "
+                "into a career, so the $-model has few or no comparable training examples "
+                "to anchor on. Expect an unusually wide range and a low confidence flag -- "
+                "the direction of the estimate is more trustworthy than its precision."
             )
         )
 

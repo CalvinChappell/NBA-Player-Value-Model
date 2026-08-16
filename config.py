@@ -273,6 +273,16 @@ MAX_CONTRACT_TIERS = [
 # the theoretical max via raises, trade kickers, and cap holds.
 MAX_CONTRACT_THRESHOLD = 0.92
 
+# The $-estimator's veteran training pool thins out fast in the mid-to-late
+# 30s -- survivorship means only a handful of players per season are still
+# active much past this age, so there's little or nothing nearby in
+# feature space for the model to anchor on. Same caveat as rookie-scale
+# extrapolation (model/dollar_estimate.py), just at the opposite end of a
+# career: below ROOKIE_SCALE_MAX_EXPERIENCE the model has never seen a
+# performance-priced deal, above this age it's rarely seen a deal at all.
+# A judgment-call heuristic, not a fitted cutoff -- see app/player_page.py.
+EXTREME_VETERAN_AGE_THRESHOLD = 36
+
 # ---------------------------------------------------------------------------
 # Playoff split (descriptive only -- see scrapers/bref_playoffs.py)
 # ---------------------------------------------------------------------------
