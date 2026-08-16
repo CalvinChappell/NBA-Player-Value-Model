@@ -52,6 +52,30 @@ into one number.
 
     st.markdown(_DIVIDER_HTML, unsafe_allow_html=True)
 
+    st.markdown("#### Why two different seasons show up together")
+    st.markdown(
+        """
+Production stats (BPM, EPM, DARKO, box score, Rim Scoring, Foul Drawing)
+come from Basketball-Reference's season-scoped pages, so they're always
+the most recently **completed** season -- 2025-26 as of this build.
+
+Cap hits and contract figures come from a different page: Basketball-
+Reference's live contracts table, which reports each player's "y1" as
+whatever season is **upcoming** relative to the day it's scraped. Since
+this pipeline runs after July 1 free agency opens, that's now 2026-27.
+
+So every number on this site is deliberately pairing **what a player just
+did** against **what he's now being paid to do next** -- which is a
+natural front-office question ("he was elite last year, what's the market
+now paying for that?"), but worth knowing explicitly rather than assuming
+production and salary are from the same season. `SALARY_CAP`, the CBA
+max-contract tiers, and the Team Payroll rollup on the Leaderboard tab
+are all set to the matching 2026-27 figures for this reason.
+        """
+    )
+
+    st.markdown(_DIVIDER_HTML, unsafe_allow_html=True)
+
     st.markdown("#### Limitations")
     st.markdown(
         """

@@ -35,9 +35,12 @@ import numpy as np
 import pandas as pd
 
 from config import (
+    FIRST_APRON,
     MAX_CONTRACT_THRESHOLD,
     MAX_CONTRACT_TIERS,
     SALARY_CAP,
+    SECOND_APRON,
+    TAX_LINE,
 )
 
 # Approximate league minimum. Used only to separate "minimum contract"
@@ -121,3 +124,46 @@ def rank_within_tier(df: pd.DataFrame, metric: str = "production_pctile") -> pd.
     )
     df["n_in_salary_tier"] = df.groupby("salary_tier")["salary_tier"].transform("size")
     return df
+
+
+def team_payroll_summary(df: pd.DataFrame, salary_field: str = "cap_hit") -> pd.DataFrame:
+    """Per-team payroll rollup against the cap, tax, and both apron lines.
+
+    Descriptive only -- not used anywhere in the value model itself, just
+    for the dashboard's Team Payroll section. Excludes free agents: their
+    "team" column reflects the last squad they suited up for (see
+    model/merge.py), not a guarantee they're still on that team's books,
+    so counting them here would overstate real payrolls.
+
+    Real team cap sheets involve dead money, cap holds, and other line
+    items this pipeline doesn't track -- treat totals as approximate,
+    same spirit as the max-contract tiering above.
+    """
+    is_fa = df["is_free_agent"] if "is_free_agent" in df.columns else False
+    team_df = df[df["team"].notna() & ~is_fa].copy()
+    team_df["_cap_hit"] = pd.to_numeric(team_df[salary_field], errors="coerce")
+    team_df = team_df[team_df["_cap_hit"].notna()]
+
+    if team_df.empty:
+        return pd.DataFrame(
+            columns=["team", "total_payroll", "players_on_cap", "apron_status"]
+        )
+
+    grouped = (
+        team_df.groupby("team")
+        .agg(total_payroll=("_cap_hit", "sum"), players_on_cap=("_cap_hit", "count"))
+        .reset_index()
+    )
+
+    grouped["apron_status"] = np.select(
+        [
+            grouped["total_payroll"] > SECOND_APRON,
+            grouped["total_payroll"] > FIRST_APRON,
+            grouped["total_payroll"] > TAX_LINE,
+            grouped["total_payroll"] > SALARY_CAP,
+        ],
+        ["Second Apron", "First Apron", "Tax", "Over Cap"],
+        default="Under Cap",
+    )
+
+    return grouped.sort_values("total_payroll", ascending=False).reset_index(drop=True)

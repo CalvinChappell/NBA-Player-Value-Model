@@ -10,6 +10,7 @@ directly from the app (slow on first run -- it's scraping live).
 """
 
 import sys
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -19,7 +20,13 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # so `import config` works
 
-from config import OUTPUT_DIR  # noqa: E402
+from config import (  # noqa: E402
+    FIRST_APRON,
+    OUTPUT_DIR,
+    SALARY_CAP,
+    SECOND_APRON,
+    TAX_LINE,
+)
 from app.player_page import render_player_page  # noqa: E402
 from app.methodology_page import render_methodology_page  # noqa: E402
 from app.percentile_bars import pctile_color  # noqa: E402
@@ -30,6 +37,7 @@ from app.theme import (  # noqa: E402
     app_title_bar,
     inject_custom_css,
 )
+from model.contracts import team_payroll_summary  # noqa: E402
 
 st.set_page_config(
     page_title="NBA Player Value Model",
@@ -77,6 +85,21 @@ if not DATA_PATH.exists():
     st.stop()
 
 df = load_data(DATA_PATH, DATA_PATH.stat().st_mtime)
+
+# Freshness + season-pairing disclosure, right under the title where it
+# can't be missed. Two things worth stating plainly rather than leaving
+# implicit: how current the data is, and that production and salary come
+# from two different seasons on purpose (see app/methodology_page.py for
+# the full explanation) -- Basketball-Reference's contracts page always
+# reports the UPCOMING season's cap hit as of whenever it's scraped, so a
+# pipeline run today pairs completed 2025-26 production against 2026-27
+# contract figures.
+_data_asof = datetime.fromtimestamp(DATA_PATH.stat().st_mtime).strftime("%B %d, %Y")
+st.caption(
+    f"Data as of {_data_asof}. Production stats (BPM/EPM/DARKO, box score) are from the "
+    "completed 2025-26 season; cap hits and contract figures reflect the 2026-27 season. "
+    "See the Methodology tab for why those are paired across two different seasons."
+)
 
 # ---------------------------------------------------------------------
 # Top navigation bar.
@@ -380,6 +403,41 @@ def _money(v) -> str:
         return f"{sign}${v / 1_000:.0f}K"
     return f"{sign}${v:.0f}"
 
+
+# --- Team Payroll ---------------------------------------------------
+# Built from the full roster (df), NOT the filtered leaderboard above --
+# a team's total cap commitment shouldn't shrink because someone filtered
+# to "Verdict: Underpaid". Purely descriptive context; doesn't feed the
+# value model anywhere. See model/contracts.team_payroll_summary and the
+# season-pairing note above for why cap_hit is a 2026-27 figure.
+with st.expander("Team Payroll (2026-27)", expanded=False):
+    st.caption(
+        "Total roster cap commitment per team against the 2026-27 cap, tax, and apron "
+        "lines. Approximate -- doesn't include dead money, cap holds, or other line items "
+        "a real front-office cap sheet would track."
+    )
+    payroll = team_payroll_summary(df)
+    if payroll.empty:
+        st.info("No payroll data available.")
+    else:
+        display_payroll = payroll.rename(
+            columns={
+                "team": "Team",
+                "total_payroll": "Total Payroll",
+                "players_on_cap": "Players",
+                "apron_status": "Status",
+            }
+        ).copy()
+        display_payroll["Total Payroll"] = payroll["total_payroll"].apply(_money)
+        st.dataframe(
+            display_payroll[["Team", "Total Payroll", "Players", "Status"]],
+            hide_index=True,
+            width="stretch",
+        )
+        st.caption(
+            f"2026-27 lines -- Cap: ${SALARY_CAP / 1e6:.1f}M · Tax: ${TAX_LINE / 1e6:.1f}M · "
+            f"1st Apron: ${FIRST_APRON / 1e6:.1f}M · 2nd Apron: ${SECOND_APRON / 1e6:.1f}M"
+        )
 
 # Market Value Surplus leads: it's dollar-denominated (so it doesn't
 # inherit the non-linearity of subtracting percentile ranks) and it's

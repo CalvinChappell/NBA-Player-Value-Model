@@ -284,6 +284,21 @@ MAX_CONTRACT_THRESHOLD = 0.92
 EXTREME_VETERAN_AGE_THRESHOLD = 36
 
 # ---------------------------------------------------------------------------
+# Team payroll rollup (descriptive only -- see model/contracts.py,
+# team_payroll_summary). NOT used by the max-contract tiering above or
+# anywhere in the $-estimator -- purely for the Team Payroll section of
+# the dashboard.
+# ---------------------------------------------------------------------------
+# 2026-27 luxury tax and apron lines, official NBA figures (same
+# announcement/vintage as SALARY_CAP above). cap_hit values in this
+# pipeline are themselves already 2026-27 numbers -- see the season-pairing
+# note in app/methodology_page.py for why -- so these are the correct
+# lines to compare team payrolls against.
+TAX_LINE = 200_428_000
+FIRST_APRON = 209_015_000
+SECOND_APRON = 221_686_000
+
+# ---------------------------------------------------------------------------
 # Playoff split (descriptive only -- see scrapers/bref_playoffs.py)
 # ---------------------------------------------------------------------------
 # Below this many total playoff minutes, the playoff panel on the player
