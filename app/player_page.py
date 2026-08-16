@@ -40,6 +40,29 @@ def _fmt(value, kind: str) -> str:
     return str(value)
 
 
+def _career_stage(age) -> str | None:
+    """Rough age-band label, NOT a fitted aging curve.
+
+    League-wide NBA production tends to rise into the mid-20s, sit fairly
+    flat through the late 20s, and decline from the early 30s on -- but
+    that's a general shape, not a per-player prediction, and this function
+    doesn't try to model trajectory, positional differences, or the
+    survivorship bias that a real aging-curve fit would need to correct
+    for (players who declined tend to leave the league, which biases naive
+    "average performance by age" curves upward at the old end). Treat this
+    purely as context for reading a single-season value estimate -- see the
+    Methodology & Limitations page for what a proper version would require.
+    """
+    if age is None or age != age:
+        return None
+    age = float(age)
+    if age < 24:
+        return "Ascending"
+    if age <= 29:
+        return "Prime"
+    return "Descending"
+
+
 def _md(text: str) -> str:
     """Escape dollar signs for Streamlit markdown.
 
@@ -120,9 +143,11 @@ def render_player_page(df, default_player: str | None = None, compact: bool = Fa
     # sliver, so stack name / contract / cap hit vertically instead.
     # Cap hit / market value / surplus are shown as their own tiles just
     # below, so the header only carries identity + contract type.
+    _stage = _career_stage(row.get("AGE"))
+    _stage_txt = f" ({_stage})" if _stage else ""
     _caption = (
         f"{row.get('team', '--')} · {row.get('pos', '--')} "
-        f"({row.get('pos_group', '--')}) · Age {_fmt(row.get('AGE'), 'int')} · "
+        f"({row.get('pos_group', '--')}) · Age {_fmt(row.get('AGE'), 'int')}{_stage_txt} · "
         f"{row.get('contract_type', '--')}"
     )
     st.markdown(f"### {row['player']}")
@@ -396,3 +421,58 @@ def render_player_page(df, default_player: str | None = None, compact: bool = Fa
 
     for note in notes:
         st.caption(note)
+
+    # --- Playoff Performance (descriptive only) ---------------------------
+    # Deliberately NOT percentile bars like everything above -- these are
+    # raw per-game numbers, unranked. Folding a handful of playoff games
+    # into a percentile (let alone Value Score or Market Value) would
+    # repeat the exact small-sample bias the Rim Scoring threshold bug
+    # taught us, just worse: 16 of 30 teams qualify, and a sweep is 4
+    # games. See config.PLAYOFF_LOW_SAMPLE_MP and the Methodology page.
+    st.markdown(_DIVIDER_HTML, unsafe_allow_html=True)
+    st.markdown("**Playoff Performance**")
+
+    if not _is_true(row.get("made_playoffs")):
+        st.caption("No playoff games this season (team didn't qualify, or player didn't appear).")
+    else:
+        gp = row.get("GP")
+        mp = row.get("MP")
+        reg_mpg = mp / gp if gp not in (None, 0) and gp == gp and mp is not None and mp == mp else None
+
+        table_rows = [
+            {
+                "": "Regular Season",
+                "GP": _fmt(gp, "int"),
+                "MPG": _fmt(reg_mpg, "int1"),
+                "PPG": _fmt(row.get("PPG"), "int1"),
+                "RPG": _fmt(row.get("RPG"), "int1"),
+                "APG": _fmt(row.get("APG"), "int1"),
+                "SPG": _fmt(row.get("SPG"), "int1"),
+                "BPG": _fmt(row.get("BPG"), "int1"),
+                "FG%": _fmt(row.get("FG_PCT"), "pct"),
+                "3P%": _fmt(row.get("FG3_PCT"), "pct"),
+                "FT%": _fmt(row.get("FT_PCT"), "pct"),
+                "BPM": _fmt(row.get("BPM"), "signed1"),
+            },
+            {
+                "": "Playoffs",
+                "GP": _fmt(row.get("playoff_GP"), "int"),
+                "MPG": _fmt(row.get("playoff_MPG"), "int1"),
+                "PPG": _fmt(row.get("playoff_PPG"), "int1"),
+                "RPG": _fmt(row.get("playoff_RPG"), "int1"),
+                "APG": _fmt(row.get("playoff_APG"), "int1"),
+                "SPG": _fmt(row.get("playoff_SPG"), "int1"),
+                "BPG": _fmt(row.get("playoff_BPG"), "int1"),
+                "FG%": _fmt(row.get("playoff_FG_PCT"), "pct"),
+                "3P%": _fmt(row.get("playoff_FG3_PCT"), "pct"),
+                "FT%": _fmt(row.get("playoff_FT_PCT"), "pct"),
+                "BPM": _fmt(row.get("playoff_BPM"), "signed1"),
+            },
+        ]
+        st.table(table_rows)
+
+        if _is_true(row.get("playoff_low_sample")):
+            st.caption(
+                f"⚠️ Small playoff sample ({_fmt(row.get('playoff_MP'), 'int')} total minutes) "
+                "-- read as anecdote, not signal."
+            )

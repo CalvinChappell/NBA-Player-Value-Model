@@ -85,6 +85,19 @@ SUMMARY_COLUMNS = [
     "years_remaining",
     "total_guaranteed",
     "bird_rights_status",
+    "made_playoffs",
+    "playoff_low_sample",
+    "playoff_GP",
+    "playoff_MPG",
+    "playoff_PPG",
+    "playoff_RPG",
+    "playoff_APG",
+    "playoff_SPG",
+    "playoff_BPG",
+    "playoff_FG_PCT",
+    "playoff_FG3_PCT",
+    "playoff_FT_PCT",
+    "playoff_BPM",
 ]
 
 

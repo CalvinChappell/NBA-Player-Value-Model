@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # so `import co
 
 from config import OUTPUT_DIR  # noqa: E402
 from app.player_page import render_player_page  # noqa: E402
+from app.methodology_page import render_methodology_page  # noqa: E402
 from app.percentile_bars import pctile_color  # noqa: E402
 from app.theme import (  # noqa: E402
     CARD_BACKGROUND,
@@ -137,7 +138,7 @@ nav_col, search_col, compact_col = st.columns([2, 3, 2])
 with nav_col:
     st.radio(
         "View",
-        ["Leaderboard", "Player Page"],
+        ["Leaderboard", "Player Page", "Methodology"],
         horizontal=True,
         key="view",
         label_visibility="collapsed",
@@ -171,6 +172,10 @@ if st.session_state["view"] == "Player Page":
         default_player=st.session_state.get("player_search") or None,
         compact=compact_view,
     )
+    st.stop()
+
+if st.session_state["view"] == "Methodology":
+    render_methodology_page()
     st.stop()
 
 # --- Filters -----------------------------------------------------------

@@ -272,3 +272,17 @@ MAX_CONTRACT_TIERS = [
 # their tier's maximum. Slightly below 1.0 because cap hits drift from
 # the theoretical max via raises, trade kickers, and cap holds.
 MAX_CONTRACT_THRESHOLD = 0.92
+
+# ---------------------------------------------------------------------------
+# Playoff split (descriptive only -- see scrapers/bref_playoffs.py)
+# ---------------------------------------------------------------------------
+# Below this many total playoff minutes, the playoff panel on the player
+# page still shows the numbers but flags them as too small a sample to
+# read into. A first-round sweep is 4 games; a 20-minute role player in a
+# 4-game sweep might log ~80 minutes total, so 150 (roughly 5-6 games at a
+# rotation-level 25-30 min/game) is a reasonable "at least saw a series or
+# two" line. Deliberately NOT used to exclude anyone from anything, and
+# deliberately NOT folded into Value Score / Market Value -- playoff
+# samples are too thin league-wide for a ranked composite. See the module
+# docstring in scrapers/bref_playoffs.py.
+PLAYOFF_LOW_SAMPLE_MP = 150

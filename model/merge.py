@@ -19,6 +19,7 @@ import pandas as pd
 from config import (
     DRAFT_CLASSES_TO_SCRAPE,
     MANUAL_DIR,
+    PLAYOFF_LOW_SAMPLE_MP,
     ROOKIE_SCALE_MAX_EXPERIENCE,
     SEASON_END_YEAR,
     SEASONS_FOR_EXPERIENCE,
@@ -28,6 +29,7 @@ from scrapers import (
     bref_contracts,
     bref_draft,
     bref_pergame,
+    bref_playoffs,
     bref_seasons_played,
     bref_shooting,
     external_metrics,
@@ -71,6 +73,16 @@ def build_master_table(season_end_year: int = SEASON_END_YEAR) -> pd.DataFrame:
         season_end_year, num_seasons=SEASONS_FOR_EXPERIENCE
     )
 
+    print("Scraping Basketball-Reference playoff stats (per-game + advanced)...")
+    try:
+        playoffs = bref_playoffs.scrape_playoff_stats(season_end_year)
+    except RuntimeError as exc:
+        # Playoffs haven't happened yet for this season (or scrape failed) --
+        # degrade to an empty playoff split rather than fail the whole
+        # pipeline. The player page shows "no playoff data" in this case.
+        print(f"  (skipping playoff split: {exc})")
+        playoffs = pd.DataFrame(columns=["name_key"])
+
     print("Loading manual EPM / DARKO / LEBRON CSVs (if present)...")
     external = external_metrics.load_all_manual_metrics()
 
@@ -88,6 +100,15 @@ def build_master_table(season_end_year: int = SEASON_END_YEAR) -> pd.DataFrame:
         per_game.drop(columns=["player"]), on="name_key", how="left", suffixes=("", "_pergame")
     )
     df = df.merge(shooting, on="name_key", how="left", suffixes=("", "_shooting"))
+    if not playoffs.empty:
+        df = df.merge(playoffs, on="name_key", how="left")
+    else:
+        for col in (
+            "playoff_GP", "playoff_MPG", "playoff_PPG", "playoff_RPG", "playoff_APG",
+            "playoff_SPG", "playoff_BPG", "playoff_FG_PCT", "playoff_FG3_PCT",
+            "playoff_FT_PCT", "playoff_MP", "playoff_BPM",
+        ):
+            df[col] = pd.NA
     df = df.merge(
         draft[["name_key", "draft_year", "draft_pick"]] if not draft.empty else draft,
         on="name_key",
@@ -147,6 +168,14 @@ def build_master_table(season_end_year: int = SEASON_END_YEAR) -> pd.DataFrame:
     # but they shouldn't count as "on" that team when filtering by team --
     # there's no guarantee they'll actually be there next season.
     df["is_free_agent"] = df["cap_hit"].isna()
+
+    # Descriptive-only playoff split -- see scrapers/bref_playoffs.py and
+    # config.PLAYOFF_LOW_SAMPLE_MP. made_playoffs distinguishes "team didn't
+    # qualify / player didn't appear" from a real (if thin) playoff sample.
+    df["made_playoffs"] = df["playoff_GP"].notna() & (df["playoff_GP"] > 0)
+    df["playoff_low_sample"] = df["made_playoffs"] & (
+        df["playoff_MP"].isna() | (df["playoff_MP"] < PLAYOFF_LOW_SAMPLE_MP)
+    )
 
     return df
 
