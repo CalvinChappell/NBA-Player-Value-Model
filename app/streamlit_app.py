@@ -101,6 +101,19 @@ st.caption(
     "See the Methodology tab for why those are paired across two different seasons."
 )
 
+# "team" (from Basketball-Reference's advanced-stats page) reflects who a
+# player played for during the completed 2025-26 season. It disagrees with
+# cap_hit -- a 2026-27 figure -- for anyone who changed teams this
+# offseason. "team_contract" (from the live contracts page) reflects each
+# player's CURRENT team and is what the filter/player-page header should
+# actually use. This bug first showed up in the Team Payroll rollup (see
+# model/contracts.team_payroll_summary for the full explanation) but
+# applies anywhere "team" is used to mean "team right now."
+if "team_contract" in df.columns:
+    df["current_team"] = df["team_contract"].where(df["team_contract"].notna(), df["team"])
+else:
+    df["current_team"] = df["team"]
+
 # ---------------------------------------------------------------------
 # Top navigation bar.
 #
@@ -297,8 +310,12 @@ with st.expander(f"Filters  ({_active_filter_summary()})", expanded=False):
         help="Guard / Wing / Big. Players listed across two groups (e.g. GF) match either.",
     )
 
+    # current_team (not team) so the dropdown and filter reflect who's
+    # actually on the roster now, not who played there during 2025-26 --
+    # see the note where current_team is built, above.
     teams = ["All"] + sorted(
-        t for t in df["team"].dropna().unique().tolist() if t.upper() not in _AGGREGATE_TEAM_CODES
+        t for t in df["current_team"].dropna().unique().tolist()
+        if t.upper() not in _AGGREGATE_TEAM_CODES
     )
     team_choice = fr1[2].selectbox("Team", teams, key="f_team")
 
@@ -379,12 +396,15 @@ if pos_group_choice != "All" and "pos_group" in filtered.columns:
         filtered["pos_group"].fillna("").str.contains(pos_group_choice, case=False, na=False)
     ]
 if team_choice != "All":
-    # Free agents (no contract on file -- see model/merge.py) are excluded
-    # when filtering to a specific team: their "team" reflects the last
-    # squad they played for, not a guarantee they'll be there next season,
-    # so they shouldn't be counted as still belonging to that team.
+    # current_team (not team) -- see the note where it's built, above, for
+    # why: "team" is stuck on whoever a player played for during the
+    # completed 2025-26 season, which is wrong for anyone who changed teams
+    # this offseason. Free agents (no contract on file -- see
+    # model/merge.py) are still excluded here: they have no team_contract
+    # to fall back from, so current_team just shows their last known team,
+    # which isn't a guarantee they're actually still there.
     is_fa = filtered["is_free_agent"] if "is_free_agent" in filtered.columns else False
-    filtered = filtered[(filtered["team"] == team_choice) & (~is_fa)]
+    filtered = filtered[(filtered["current_team"] == team_choice) & (~is_fa)]
 if verdict_choice != "All" and "market_value_verdict" in filtered.columns:
     if verdict_choice == _CONCLUSIVE:
         filtered = filtered[filtered["market_value_verdict"].isin(["Underpaid", "Overpaid"])]
@@ -438,10 +458,14 @@ def _money(v) -> str:
 # value model anywhere. See model/contracts.team_payroll_summary and the
 # season-pairing note above for why cap_hit is a 2026-27 figure.
 with st.expander("Team Payroll (2026-27)", expanded=False):
-    st.caption(
-        "Total roster cap commitment per team against the 2026-27 cap, tax, and apron "
-        "lines. Approximate -- doesn't include dead money, cap holds, or other line items "
-        "a real front-office cap sheet would track."
+    st.warning(
+        "**This is signed-player payroll, not a full cap sheet.** It sums each team's "
+        "currently-signed player cap hits only -- it does **not** include dead money "
+        "(buyouts, stretch provisions), cap holds for a team's own unrenounced free "
+        "agents, or incomplete-roster charges. Those categories aren't available from "
+        "this pipeline's data source. As a result, these totals **will not match** "
+        "Spotrac's or other sites' full \"cap allocations\" figures -- treat this as a "
+        "player-payroll view, not a reconciled team cap sheet."
     )
     payroll = team_payroll_summary(df)
     if payroll.empty:

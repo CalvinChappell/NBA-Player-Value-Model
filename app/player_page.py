@@ -144,10 +144,20 @@ def render_player_page(df, default_player: str | None = None, compact: bool = Fa
     # sliver, so stack name / contract / cap hit vertically instead.
     # Cap hit / market value / surplus are shown as their own tiles just
     # below, so the header only carries identity + contract type.
+    #
+    # Team: uses team_contract (current team, from the live contracts page)
+    # rather than "team" (who they played for during the completed 2025-26
+    # season, from Basketball-Reference's advanced-stats page). Those two
+    # disagree for anyone who changed teams this offseason -- see the same
+    # note in model/contracts.team_payroll_summary, which hit this exact
+    # bug first. Falls back to "team" only if team_contract is missing.
+    _team = row.get("team_contract")
+    if _team is None or (isinstance(_team, float) and _team != _team):
+        _team = row.get("team", "--")
     _stage = _career_stage(row.get("AGE"))
     _stage_txt = f" ({_stage})" if _stage else ""
     _caption = (
-        f"{row.get('team', '--')} · {row.get('pos', '--')} "
+        f"{_team} · {row.get('pos', '--')} "
         f"({row.get('pos_group', '--')}) · Age {_fmt(row.get('AGE'), 'int')}{_stage_txt} · "
         f"{row.get('contract_type', '--')}"
     )
