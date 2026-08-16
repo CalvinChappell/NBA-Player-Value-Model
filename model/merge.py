@@ -37,17 +37,33 @@ from scrapers import (
 from utils.name_match import normalize_name
 
 
+_OVERRIDE_COLUMNS = [
+    "name_key", "contract_type", "bird_rights_status", "cap_hit_override",
+    "team_override", "notes",
+]
+
+
 def _load_contract_overrides() -> pd.DataFrame:
+    """Manual corrections for cases the scrapers can't resolve reliably.
+
+    team_override exists for a specific, real failure mode: a player who
+    got bought out and re-signed elsewhere can show up as TWO rows on
+    Basketball-Reference's contracts page (a dead-money charge against
+    the old team, plus the new deal), and there's no generic, safe rule
+    for picking the right one automatically -- both rows can even show
+    the same stale pre-buyout dollar figures (this happened with Bradley
+    Beal's 2026 Suns buyout / Clippers re-signing). Hand-correcting one
+    player here beats risking a dedup-logic change that could silently
+    break someone else's correctly-scraped row.
+    """
     path = MANUAL_DIR / "contract_overrides.csv"
     if not path.exists():
-        return pd.DataFrame(
-            columns=["name_key", "contract_type", "bird_rights_status", "cap_hit_override", "notes"]
-        )
+        return pd.DataFrame(columns=_OVERRIDE_COLUMNS)
     df = pd.read_csv(path)
     if df.empty:
-        return pd.DataFrame(
-            columns=["name_key", "contract_type", "bird_rights_status", "cap_hit_override", "notes"]
-        )
+        return pd.DataFrame(columns=_OVERRIDE_COLUMNS)
+    if "team_override" not in df.columns:
+        df["team_override"] = pd.NA
     df["name_key"] = df["player"].apply(normalize_name)
     return df.drop(columns=["player"])
 
@@ -133,7 +149,7 @@ def build_master_table(season_end_year: int = SEASON_END_YEAR) -> pd.DataFrame:
     if not overrides.empty:
         df = df.merge(overrides, on="name_key", how="left")
     else:
-        for col in ("contract_type", "bird_rights_status", "cap_hit_override", "notes"):
+        for col in ("contract_type", "bird_rights_status", "cap_hit_override", "team_override", "notes"):
             df[col] = pd.NA
 
     # Experience + rookie/vet classification (see config.ROOKIE_SCALE_MAX_EXPERIENCE
@@ -157,6 +173,15 @@ def build_master_table(season_end_year: int = SEASON_END_YEAR) -> pd.DataFrame:
     # Manual cap_hit correction wins if present, else fall back to the
     # Basketball-Reference salary figure.
     df["cap_hit"] = df["cap_hit_override"].where(df["cap_hit_override"].notna(), df["cap_hit"])
+
+    # Same idea for team_contract: a manual team_override wins if present.
+    # See _load_contract_overrides for why this exists (buyout/re-signing
+    # cases where Basketball-Reference's contracts page shows a stale or
+    # duplicate team for a player).
+    if "team_contract" in df.columns:
+        df["team_contract"] = df["team_override"].where(
+            df["team_override"].notna(), df["team_contract"]
+        )
 
     # Free agent flag: the contracts page only lists players with a signed
     # deal, so anyone who played this season (has advanced stats) but has
