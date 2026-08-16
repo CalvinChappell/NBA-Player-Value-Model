@@ -114,6 +114,17 @@ if "team_contract" in df.columns:
 else:
     df["current_team"] = df["team"]
 
+# Overwrite "team" itself with the corrected value, rather than only using
+# current_team in the filter dropdown/logic. "team" is referenced directly
+# in well over a dozen places downstream -- every leaderboard table column,
+# scatter plot hover tooltip, _COLUMN_LABELS, _IDENTITY_COLUMNS -- and
+# patching each one individually is exactly the kind of thing that leaves
+# one spot behind (which is what happened: the filter got fixed, the
+# actual displayed Team column in the tables didn't). Overwriting the
+# source column once, before anything else reads it, means every
+# downstream reference is correct automatically instead of by enumeration.
+df["team"] = df["current_team"]
+
 # ---------------------------------------------------------------------
 # Top navigation bar.
 #
