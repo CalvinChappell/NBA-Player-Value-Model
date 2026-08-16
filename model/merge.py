@@ -172,7 +172,17 @@ def build_master_table(season_end_year: int = SEASON_END_YEAR) -> pd.DataFrame:
     # Descriptive-only playoff split -- see scrapers/bref_playoffs.py and
     # config.PLAYOFF_LOW_SAMPLE_MP. made_playoffs distinguishes "team didn't
     # qualify / player didn't appear" from a real (if thin) playoff sample.
-    df["made_playoffs"] = df["playoff_GP"].notna() & (df["playoff_GP"] > 0)
+    #
+    # Checks playoff_MP too, not just playoff_GP, deliberately: a bug once
+    # had playoff_GP silently failing to parse (wrong data-stat attribute
+    # name on that specific table) while playoff_MP/PPG/RPG/BPM all parsed
+    # fine from a different table -- which made every playoff participant,
+    # Finals runs included, look like they'd never made the playoffs at
+    # all. Requiring EITHER field means one bad attribute name on one table
+    # can't erase a player's playoff appearance from the whole feature.
+    df["made_playoffs"] = (
+        (df["playoff_GP"].notna() & (df["playoff_GP"] > 0)) | df["playoff_MP"].notna()
+    )
     df["playoff_low_sample"] = df["made_playoffs"] & (
         df["playoff_MP"].isna() | (df["playoff_MP"] < PLAYOFF_LOW_SAMPLE_MP)
     )

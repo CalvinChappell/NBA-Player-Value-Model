@@ -81,7 +81,16 @@ def _scrape_playoff_pergame(season_end_year: int) -> pd.DataFrame:
             {
                 "player": player_cell.get_text(strip=True),
                 "team": stat("team_id") or stat("team_name_abbr"),
-                "playoff_GP": stat("games"),
+                # NOT "games" here -- that attribute name is only proven
+                # correct on the ADVANCED table (see bref_advanced.py's
+                # comment on the "g" -> "games" rename). This per-game
+                # table apparently still uses something else for games
+                # played, so stat("games") silently returned nothing while
+                # every other stat on this same row parsed fine -- which
+                # made every playoff participant look like they never made
+                # the playoffs (made_playoffs was gated solely on this
+                # field). GP is sourced from _scrape_playoff_advanced
+                # instead now, which uses the verified-correct name.
                 "playoff_MPG": stat("mp_per_g"),
                 "playoff_PPG": stat("pts_per_g"),
                 "playoff_RPG": stat("trb_per_g"),
@@ -99,7 +108,7 @@ def _scrape_playoff_pergame(season_end_year: int) -> pd.DataFrame:
         raise RuntimeError("Parsed zero rows from the playoff per-game table.")
 
     numeric_cols = [
-        "playoff_GP", "playoff_MPG", "playoff_PPG", "playoff_RPG", "playoff_APG",
+        "playoff_MPG", "playoff_PPG", "playoff_RPG", "playoff_APG",
         "playoff_SPG", "playoff_BPG", "playoff_FG_PCT", "playoff_FG3_PCT", "playoff_FT_PCT",
     ]
     for col in numeric_cols:
@@ -140,6 +149,12 @@ def _scrape_playoff_advanced(season_end_year: int) -> pd.DataFrame:
             {
                 "player": player_cell.get_text(strip=True),
                 "team": stat("team_id") or stat("team_name_abbr"),
+                # "games" is the verified-correct attribute name here --
+                # same one bref_advanced.py uses for the regular-season
+                # advanced table (see its comment on the "g" -> "games"
+                # rename). This is now the ONLY source of playoff_GP; see
+                # the note in _scrape_playoff_pergame for why it moved.
+                "playoff_GP": stat("games"),
                 "playoff_MP": stat("mp"),
                 "playoff_BPM": stat("bpm"),
             }
@@ -149,7 +164,7 @@ def _scrape_playoff_advanced(season_end_year: int) -> pd.DataFrame:
     if df.empty:
         raise RuntimeError("Parsed zero rows from the playoff advanced-stats table.")
 
-    for col in ["playoff_MP", "playoff_BPM"]:
+    for col in ["playoff_GP", "playoff_MP", "playoff_BPM"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     df["name_key"] = df["player"].apply(normalize_name)
