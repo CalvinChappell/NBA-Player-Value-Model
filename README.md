@@ -183,7 +183,13 @@ app/
   theme.py                       shared color theme + mobile CSS
 data/manual/                    drop your EPM/DARKO/LEBRON/databallr/override CSVs here
 outputs/                         player_value_model.csv (full, local-only) +
-                                  player_value_model_public.csv (committed, deployed)
+                                  player_value_model_public.csv (committed, deployed) +
+                                  team_payroll.csv (committed -- team payroll rollup,
+                                    built from the contracts page directly so rookies
+                                    and full-season-injury players count; see
+                                    model/merge.build_payroll_table) +
+                                  payroll_only_players.csv (committed -- players counted
+                                    in payroll with no leaderboard/player-page entry)
 ```
 
 ## Publishing it (Streamlit Community Cloud)
@@ -204,9 +210,14 @@ republishes someone else's dataset. `make_public_data.py` strips those raw
 columns (keeping their derived `_pctile` ranks, which is what the app
 actually renders) and writes `outputs/player_value_model_public.csv` --
 **that's** the file that gets committed. `.gitignore` enforces this with a
-deny-by-default rule (`outputs/*` ignored, only the public CSV explicitly
+deny-by-default rule (`outputs/*` ignored, only specific files explicitly
 allowed) specifically so a stale or differently-named full-data file can't
-slip past it. The app prefers the full file when it's present (your
+slip past it. `team_payroll.csv` and `payroll_only_players.csv` are also
+on that allow-list, and don't need stripping the way `player_value_model.csv`
+does -- both come straight from Basketball-Reference's contracts page,
+which has no gated-source columns to begin with. `run_pipeline.py`
+regenerates both automatically; there's no separate script for them the
+way `make_public_data.py` exists for the leaderboard data. The app prefers the full file when it's present (your
 machine) and falls back to the public one (deployed), so you keep the
 complete local view without any config switching.
 

@@ -108,6 +108,40 @@ these three shapes before writing new code — it usually does.
   to source payroll from the contracts page directly instead. Don't
   merge these two code paths back together without re-solving that
   problem.
+- **`contract_type` ("Rookie Scale" vs "Veteran") needs draft context,
+  not just years of experience.** The original heuristic was
+  `experience <= ROOKIE_SCALE_MAX_EXPERIENCE -> "Rookie Scale"`, which
+  mislabeled undrafted players (a CBA rookie-scale contract only exists
+  for first-round picks on their original deal -- undrafted players
+  never have one, regardless of years of service) and would do the same
+  to second-round picks. Fixed in `model/merge.build_master_table` by
+  checking `experience_is_estimated` (a reliable "undrafted" signal --
+  see the season-fallback logic just above it) and `draft_pick > 30`
+  (overall pick number, not round-relative) before applying the
+  experience cutoff. Real case that surfaced this: Julian Champagnie
+  (undrafted 2021, now on a real second contract with San Antonio) was
+  showing as Rookie Scale.
+- **A code fix isn't shipped until it's actually in the deployed repo.**
+  Happened twice in one day: edits made without direct folder access got
+  delivered as zips, and not every file in a zip actually got copied
+  over before the conversation moved on to the next bug -- so `merge.py`
+  had the payroll fix but `app/streamlit_app.py` (which calls it) didn't,
+  and the live dashboard kept showing the old, broken numbers for
+  another full round of "is this fixed?" before anyone noticed. With
+  direct folder access this specific failure mode shouldn't recur, but
+  the underlying lesson still applies: after any fix, verify with
+  `git status` / `git log` that the change is actually committed and
+  pushed, not just sitting as an edited file -- and check the *live*
+  app, not just local output, before calling something done.
+
+## Don't run git commands from the sandbox
+
+Even read-only ones (`git status`, `git diff`) can leave a stale
+`.git/index.lock` behind on this particular mount, which then blocks
+Calvin's next real commit until he manually removes it
+(`rm .git/index.lock`) -- happened twice in one session. Use `git log`
+sparingly if at all; prefer `Read`/`Grep` on the actual files to verify
+state, and let Calvin run `git status`/`add`/`commit`/`push` himself.
 
 ## Diagnostics over guessing
 
