@@ -167,6 +167,36 @@ def main():
 
     print(f"\nWrote {csv_path} (full data, used by the dashboard)")
     print(f"Wrote {summary_csv_path} / {summary_xlsx_path} (curated subset for sharing)")
+
+    # Team Payroll is built separately from everything above, and
+    # deliberately NOT from `df` -- df is anchored on 2025-26 advanced
+    # stats (see model/merge.build_master_table), so any signed player
+    # with zero 2025-26 games -- incoming rookies, or veterans who missed
+    # the whole season to injury (Haliburton, Irving, Lillard, VanVleet
+    # all qualify for 2026-27) -- would silently never count toward their
+    # team's total. build_payroll_table() sources straight off the
+    # contracts page instead, so every signed player counts.
+    payroll_df = merge.build_payroll_table()
+    payroll_summary = contracts.team_payroll_summary(payroll_df)
+    payroll_csv_path = OUTPUT_DIR / "team_payroll.csv"
+    payroll_summary.to_csv(payroll_csv_path, index=False)
+
+    # Players who count toward the payroll totals above but who won't
+    # appear anywhere on the leaderboard/player pages, because df has no
+    # 2025-26 production row for them at all. Written out separately so
+    # the app can show exactly who makes up a payroll total, rather than
+    # asking anyone to take a team's number on faith.
+    on_leaderboard = set(df["name_key"]) if "name_key" in df.columns else set()
+    payroll_only = payroll_df[~payroll_df["name_key"].isin(on_leaderboard)].copy()
+    payroll_only = payroll_only.sort_values("cap_hit", ascending=False)
+    payroll_only_csv_path = OUTPUT_DIR / "payroll_only_players.csv"
+    payroll_only[["player", "team_contract", "cap_hit"]].to_csv(payroll_only_csv_path, index=False)
+
+    print(f"Wrote {payroll_csv_path} (team payroll rollup, independent of production-stat coverage)")
+    print(
+        f"Wrote {payroll_only_csv_path} ({len(payroll_only)} signed players counted in payroll "
+        "with no 2025-26 stats -- incoming rookies + players out the full season)"
+    )
     print(f"\nTop 10 by value score:")
     print(df[["player", "team", "contract_type", "value_score", "cap_hit"]].head(10).to_string())
 

@@ -153,7 +153,11 @@ def team_payroll_summary(df: pd.DataFrame, salary_field: str = "cap_hit") -> pd.
     items this pipeline doesn't track -- treat totals as approximate,
     same spirit as the max-contract tiering above.
     """
-    is_fa = df["is_free_agent"] if "is_free_agent" in df.columns else False
+    is_fa = (
+        df["is_free_agent"]
+        if "is_free_agent" in df.columns
+        else pd.Series(False, index=df.index)
+    )
     team_df = df[~is_fa].copy()
 
     if "team_contract" in team_df.columns:

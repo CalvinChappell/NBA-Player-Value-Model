@@ -37,7 +37,6 @@ from app.theme import (  # noqa: E402
     app_title_bar,
     inject_custom_css,
 )
-from model.contracts import team_payroll_summary  # noqa: E402
 
 st.set_page_config(
     page_title="NBA Player Value Model",
@@ -57,6 +56,12 @@ inject_custom_css()
 _FULL_PATH = OUTPUT_DIR / "player_value_model.csv"
 _PUBLIC_PATH = OUTPUT_DIR / "player_value_model_public.csv"
 DATA_PATH = _FULL_PATH if _FULL_PATH.exists() else _PUBLIC_PATH
+
+# Team Payroll's two precomputed files (see run_pipeline.py) -- neither
+# is gated third-party data, so unlike DATA_PATH above there's no
+# full/public split, just one file each.
+_PAYROLL_PATH = OUTPUT_DIR / "team_payroll.csv"
+_PAYROLL_ONLY_PATH = OUTPUT_DIR / "payroll_only_players.csv"
 
 
 @st.cache_data
@@ -463,11 +468,17 @@ def _money(v) -> str:
 
 
 # --- Team Payroll ---------------------------------------------------
-# Built from the full roster (df), NOT the filtered leaderboard above --
-# a team's total cap commitment shouldn't shrink because someone filtered
-# to "Verdict: Underpaid". Purely descriptive context; doesn't feed the
-# value model anywhere. See model/contracts.team_payroll_summary and the
-# season-pairing note above for why cap_hit is a 2026-27 figure.
+# Loaded from its own precomputed file (team_payroll.csv), NOT built from
+# df/the leaderboard above. That's deliberate: df is anchored on 2025-26
+# ADVANCED STATS (see model/merge.build_master_table), so any signed
+# player with zero 2025-26 games -- incoming rookies, or veterans who
+# missed the whole season to injury (Haliburton, Irving, Lillard, and
+# VanVleet all qualify for 2026-27) -- would silently never count toward
+# a df-based payroll total. team_payroll.csv comes from
+# model/merge.build_payroll_table(), which sources straight off the
+# contracts page so every signed player counts. See
+# model/contracts.team_payroll_summary and the season-pairing note above
+# for why cap_hit is a 2026-27 figure.
 with st.expander("Team Payroll (2026-27)", expanded=False):
     st.warning(
         "**This is signed-player payroll, not a full cap sheet.** It sums each team's "
@@ -478,7 +489,11 @@ with st.expander("Team Payroll (2026-27)", expanded=False):
         "Spotrac's or other sites' full \"cap allocations\" figures -- treat this as a "
         "player-payroll view, not a reconciled team cap sheet."
     )
-    payroll = team_payroll_summary(df)
+    if _PAYROLL_PATH.exists():
+        payroll = load_data(_PAYROLL_PATH, _PAYROLL_PATH.stat().st_mtime)
+    else:
+        payroll = pd.DataFrame(columns=["team", "total_payroll", "players_on_cap", "apron_status"])
+
     if payroll.empty:
         st.info("No payroll data available.")
     else:
@@ -500,6 +515,42 @@ with st.expander("Team Payroll (2026-27)", expanded=False):
             f"2026-27 lines -- Cap: ${SALARY_CAP / 1e6:.1f}M · Tax: ${TAX_LINE / 1e6:.1f}M · "
             f"1st Apron: ${FIRST_APRON / 1e6:.1f}M · 2nd Apron: ${SECOND_APRON / 1e6:.1f}M"
         )
+
+    # Payroll totals above include every signed player, but the
+    # leaderboard/player pages only cover players with 2025-26 production
+    # stats -- so some of the money in a team's total belongs to players
+    # you won't be able to find or click into anywhere else in this app.
+    # Listed explicitly rather than left as an unexplained gap: mainly
+    # incoming rookies (no NBA games yet) and a handful of veterans who
+    # were out the entire 2025-26 season with injury. We deliberately did
+    # NOT substitute their 2024-25 stats to give them a production score --
+    # that would compare a 2026-27 cap hit against performance from two
+    # seasons ago, which is misleading for exactly the players (recovering
+    # from a major injury) where it matters most. They're counted in
+    # payroll because the money is real; they're absent from the
+    # leaderboard because we have no current-season basis to rank them on.
+    if _PAYROLL_ONLY_PATH.exists():
+        payroll_only = load_data(_PAYROLL_ONLY_PATH, _PAYROLL_ONLY_PATH.stat().st_mtime)
+    else:
+        payroll_only = pd.DataFrame(columns=["player", "team_contract", "cap_hit"])
+
+    if not payroll_only.empty:
+        st.caption(
+            f"{len(payroll_only)} players above are counted in their team's payroll total but "
+            "won't appear on the leaderboard or have a player page -- no 2025-26 stats on record "
+            "(incoming rookies, or full-season injuries such as Tyrese Haliburton, Kyrie Irving, "
+            "Damian Lillard, and Fred VanVleet)."
+        )
+        with st.expander("Show these players", expanded=False):
+            display_only = payroll_only.rename(
+                columns={"player": "Player", "team_contract": "Team", "cap_hit": "Cap Hit"}
+            ).copy()
+            display_only["Cap Hit"] = payroll_only["cap_hit"].apply(_money)
+            st.dataframe(
+                display_only[["Player", "Team", "Cap Hit"]],
+                hide_index=True,
+                width="stretch",
+            )
 
 # Market Value Surplus leads: it's dollar-denominated (so it doesn't
 # inherit the non-linearity of subtracting percentile ranks) and it's
@@ -856,18 +907,18 @@ st.caption("Click **View** on any row to open that player's page. Column headers
 # on every tab, per Calvin's request that both stay primary,
 # front-and-center metrics everywhere -- not just their own dedicated tab.
 _BASIC_STATS_COLUMNS = [
-    "player", "team", "pos", "market_value_verdict", "estimate_confidence", "market_value_surplus", "value_score",
+    "player", "team", "pos", "market_value_verdict", "estimate_confidence", "market_value_surplus", "cap_hit", "value_score",
     "production_pctile", "FoulDraw_Value", "Rim_Scoring_Value",
     "AGE", "experience", "contract_type", "GP", "MP",
     "PPG", "RPG", "APG", "SPG", "BPG", "FG_PCT", "FG3_PCT", "FT_PCT",
 ]
 _ADVANCED_METRICS_COLUMNS = [
-    "player", "team", "pos", "market_value_verdict", "estimate_confidence", "market_value_surplus", "value_score",
+    "player", "team", "pos", "market_value_verdict", "estimate_confidence", "market_value_surplus", "cap_hit", "value_score",
     "production_pctile", "OBPM", "DBPM", "BPM", "EPM", "DARKO",
     "OnBall_Pct", "rTS_rel", "RAPM_3Y", "PVAL", "NET_ON_OFF", "Rim_Scoring_Value", "FoulDraw_Value",
 ]
 _CONTRACT_COLUMNS = [
-    "player", "team", "pos", "market_value_surplus", "market_value_verdict", "estimate_confidence", "salary_tier", "cap_hit", "estimated_market_value",
+    "player", "team", "pos", "market_value_surplus", "cap_hit", "market_value_verdict", "estimate_confidence", "salary_tier", "estimated_market_value",
     "value_score", "production_pctile", "contract_type", "salary_pctile", "value_ratio",
     "years_remaining", "total_guaranteed", "bird_rights_status",
 ]

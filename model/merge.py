@@ -14,6 +14,7 @@ player_id (slug) is carried through as the most reliable key for anyone
 who wants to join in still more sources later.
 """
 
+import numpy as np
 import pandas as pd
 
 from config import (
@@ -176,12 +177,33 @@ def build_master_table(season_end_year: int = SEASON_END_YEAR) -> pd.DataFrame:
     _from_seasons = pd.to_numeric(df.get("seasons_played"), errors="coerce")
     df["experience"] = _from_draft.where(_from_draft.notna(), _from_seasons)
     df["experience_is_estimated"] = _from_draft.isna() & _from_seasons.notna()
+
+    # A CBA "rookie scale" contract only exists for players drafted in
+    # the FIRST ROUND, on their original 4-year deal -- it's a specific
+    # slotted-salary structure, not just "early career." experience <= 4
+    # alone isn't enough to identify it: undrafted players never had one
+    # to begin with (no draft slot means no rookie-scale contract), and
+    # second-round picks sign negotiable deals, not the slotted rookie
+    # scale either. Real case that surfaced this: Julian Champagnie went
+    # undrafted in 2021 and is now on a real second contract with San
+    # Antonio, but was showing as "Rookie Scale" purely because his
+    # experience happened to be <= ROOKIE_SCALE_MAX_EXPERIENCE.
+    # experience_is_estimated (no draft_year on file -- see above) is a
+    # reliable "undrafted" signal; draft_pick > 30 catches second-round
+    # picks who DO have a draft_year (pick_overall is 1-60 league-wide,
+    # not round-relative -- see scrapers/bref_draft.py).
+    _draft_pick_num = pd.to_numeric(df.get("draft_pick"), errors="coerce")
+    _not_rookie_scale_eligible = df["experience_is_estimated"] | (_draft_pick_num > 30)
     df["contract_type"] = df["contract_type"].where(
         df["contract_type"].notna(),
-        df["experience"].apply(
-            lambda x: "Rookie Scale"
-            if pd.notna(x) and x <= ROOKIE_SCALE_MAX_EXPERIENCE
-            else "Veteran"
+        np.where(
+            _not_rookie_scale_eligible,
+            "Veteran",
+            df["experience"].apply(
+                lambda x: "Rookie Scale"
+                if pd.notna(x) and x <= ROOKIE_SCALE_MAX_EXPERIENCE
+                else "Veteran"
+            ),
         ),
     )
 

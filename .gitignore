@@ -51,3 +51,10 @@ data/manual/databallr_metrics.csv
 # ---------------------------------------------------------------------
 outputs/*
 !outputs/player_value_model_public.csv
+# team_payroll.csv / payroll_only_players.csv are both sourced entirely
+# from Basketball-Reference's contracts page (freely accessible, no
+# gated third-party data involved -- see model/merge.build_payroll_table),
+# so unlike player_value_model.csv they don't need a stripped-down
+# public variant. Safe to commit as-is.
+!outputs/team_payroll.csv
+!outputs/payroll_only_players.csv
