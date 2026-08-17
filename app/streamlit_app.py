@@ -648,7 +648,7 @@ if _has_surplus:
         headline_cols[2].metric("Biggest overpay", "-", help="No players outside the model's interval.")
 
     st.caption(
-        "ℹ️ **Biggest surplus** includes rookie-scale players; **Biggest overpay** excludes "
+        "**Biggest surplus** includes rookie-scale players; **Biggest overpay** excludes "
         "them. Not a typo -- rookie-scale players on short/injury-shortened seasons get an unreliable, "
         "artificially low market-value estimate that can falsely flag them as 'overpaid,' but that same "
         "effect never falsely flags someone as underpaid. See Methodology for details."

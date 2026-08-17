@@ -234,16 +234,22 @@ these three shapes before writing new code — it usually does.
   for drafted players, `UNDRAFTED_PICK_SENTINEL = 61` -- worse than
   the actual last pick, 60 -- for players `experience_is_estimated`
   flags as undrafted, pool median for drafted players missing
-  draft_pick for other reasons). Verified the pure-pandas logic
-  against real cached data (position_spectrum values sane,
-  undrafted-sentinel split 153/583 players correctly) but NOT yet
-  validated end-to-end with sklearn -- re-run in Calvin's venv and
-  check whether R^2 actually moved and whether GS_PCT/draft_pick_filled
-  show up with real weight in the "Feature importances" printout
-  before treating this as more than a plausible hypothesis. A next
-  tier (All-Star/All-NBA selection count) was discussed and explicitly
-  deferred -- needs a new scraper against Basketball-Reference's
-  awards pages, only worth it if Tier 1 doesn't move R^2 enough.
+  draft_pick for other reasons). **Validated end-to-end (Aug 17, 2026
+  re-run, fresh scrape, Calvin's venv, without GS_PCT):** Out-of-fold
+  R^2 = 0.606 (dollars) / 0.611 (log space), up from ~0.54 baseline.
+  Feature importances: EPM 0.312, experience 0.261, DARKO 0.139,
+  draft_pick_filled 0.114, MP 0.105, BPM 0.033, AGE 0.031, pos_spectrum
+  0.007 -- draft_pick_filled is pulling real weight as hoped;
+  pos_spectrum is barely contributing (real result, not a bug -- role/
+  position scarcity apparently isn't adding much beyond what
+  production+experience+draft_pick already capture). 80% interval
+  covered 80.9% of players, 50% inner band covered 50.8% -- still
+  well-calibrated, matches the pre-Tier-1 numbers, so the new features
+  didn't destabilize calibration. A next tier (All-Star/All-NBA
+  selection count) was discussed and explicitly deferred -- needs a
+  new scraper against Basketball-Reference's awards pages, only worth
+  it if Tier 1 doesn't move R^2 enough (it already has, so this is
+  lower priority now).
 - **GS_PCT (games-started share) was tried as a fourth Tier 1 feature
   and reverted -- don't re-add it without solving the problem below
   first.** It moved R^2 further (0.606 -> 0.636) but came to dominate
