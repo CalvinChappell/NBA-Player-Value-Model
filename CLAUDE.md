@@ -197,12 +197,27 @@ these three shapes before writing new code — it usually does.
   with wide intervals, so the model isn't presenting them as confident
   calls -- this is the existing confidence system doing its job, just
   more visible now that the systemic youth penalty isn't masking it.
-  Rookie Scale players are still excluded from the "Biggest
-  Surplus"/"Biggest Overpay" HEADLINE metrics specifically because of
-  this (see the comment above `under = headline_pool[...]` in
-  streamlit_app.py) -- safe to revisit if a future fix addresses the
-  short-season sensitivity directly (e.g. a distinct low-MP confidence
-  penalty), but don't remove that exclusion without re-checking this.
+- **The Rookie Scale headline exclusion is now asymmetric (Aug 2026),
+  not a blanket exclude.** It used to exclude Rookie Scale players from
+  BOTH "Biggest Surplus" and "Biggest Overpay" on the dashboard, which
+  is what let Kris Dunn win "Biggest surplus" while the Leaderboard's
+  own sort showed Wembanyama's surplus was actually the largest (or
+  second-largest) in the league -- confusing since it looked like a
+  display bug rather than a deliberate exclusion. Checked whether the
+  short-season MP bias above (the reason for the exclusion) cuts both
+  ways before changing anything: across every Rookie Scale player above
+  MIN_MINUTES, low MP only ever correlates with a LOWER surplus
+  (correlation +0.25) -- no low-confidence rookie-scale player shows a
+  large positive surplus without matching high production and a
+  near-full season. So the bias is one-directional: it manufactures
+  false "overpaid" verdicts, never false "underpaid" ones. Fixed in
+  `app/streamlit_app.py` accordingly -- "Biggest surplus" now includes
+  Rookie Scale players (Stephon Castle / Wembanyama can win it again),
+  "Biggest overpay" still excludes them (Jalen Williams / Keegan Murray
+  / Nikola Jovic-type short-season noise stays out). A caption next to
+  the headline metrics now says this explicitly so it doesn't read as
+  an inconsistency. Re-check the one-directional claim above (not just
+  re-run the numbers) if the $-estimator's feature set changes.
 - **Tier 1 $-estimator feature additions (Aug 2026): GS_PCT,
   pos_spectrum, draft_pick_filled.** R^2 was ~0.54 with only
   production + AGE + experience + MP as inputs -- real signal

@@ -571,52 +571,52 @@ if _has_surplus:
     # uncertainty.
     if "market_value_verdict" in filtered.columns:
         headline_pool = filtered
-        # Two populations the $-estimator is known to extrapolate badly
-        # for, excluded from these two headline numbers specifically
-        # (NOT from the full table below, which still shows them with
-        # their existing confidence caveats intact):
-        #
-        # 1. Rookie-scale players. The model trains on veterans only
-        #    (see model/dollar_estimate.py), and a real case exposed a
-        #    genuine bias, not just noise: after contract_type correctly
-        #    stopped mislabeling ~200 modest-salary young second-contract
-        #    veterans as "Rookie Scale" (see CLAUDE.md), those players
-        #    became the dominant "young player" signal in training --
-        #    which taught the model that youth predicts a modest salary,
-        #    and it applies that pattern to elite rookie-scale outliers
-        #    too. Result: Wembanyama (99.8th percentile production)
-        #    priced BELOW his own already-below-market rookie salary, and
-        #    Jalen Williams / Paolo Banchero / Chet Holmgren -- all on
-        #    big, well-earned rookie-scale extensions -- showing as the
-        #    most "overpaid" players in the entire league.
-        #
-        #    UPDATE (Aug 2026): the root cause is now fixed directly in
-        #    add_market_value_estimate() -- AGE/experience get neutralized
-        #    to the veteran training pool's median specifically for
-        #    Rookie Scale predictions, so the model stops extrapolating
-        #    "young -> cheap" onto players it never actually trained on.
-        #    Value Score was ALSO changed (model/value_score.py) to derive
-        #    its pay side from estimated_market_value, so it is NOT
-        #    independent of this bug anymore the way this comment used to
-        #    claim -- it inherits the same fix, not a separate immunity.
-        #    Once both fixes are validated (see diagnose_value_fixes.py)
-        #    and rookie-scale market_value_surplus numbers look sane
-        #    again, this exclusion is very likely safe to remove -- it's
-        #    being left in place for now only because the fix hasn't been
-        #    run end-to-end yet (sklearn isn't available in every dev
-        #    environment this project gets edited from).
-        # 2. Sub-rotation minutes. A handful of low-MP players were
-        #    producing wild point estimates (Ty Jerome's estimated
-        #    market value came out near $40M against a $9.2M salary) --
-        #    the same small-sample instability MIN_MINUTES already
-        #    guards against for percentile ranking, just not previously
-        #    applied here.
-        if "contract_type" in headline_pool.columns:
-            headline_pool = headline_pool[headline_pool["contract_type"] != "Rookie Scale"]
+        # Sub-rotation minutes are excluded from BOTH headline numbers:
+        # a handful of low-MP players were producing wild point estimates
+        # (Ty Jerome's estimated market value came out near $40M against a
+        # $9.2M salary) -- the same small-sample instability MIN_MINUTES
+        # already guards against for percentile ranking, just not
+        # previously applied here.
         if "MP" in headline_pool.columns:
             headline_pool = headline_pool[pd.to_numeric(headline_pool["MP"], errors="coerce") >= MIN_MINUTES]
+
+        # Rookie-scale players get a DIFFERENT treatment on each side of
+        # this ledger, not a blanket exclusion (that was the pre-Aug-2026
+        # behavior -- see CLAUDE.md for the full history of why it was
+        # ever there). The underlying $-estimator bias (young rookie-scale
+        # stars extrapolated toward "cheap" because the model trains on
+        # veterans only) was fixed directly in add_market_value_estimate(),
+        # and it's validated: Wembanyama now shows a believable ~$30.6M
+        # surplus, correctly "Underpaid".
+        #
+        # A second, narrower issue survived that fix: a few rookie-scale
+        # EXTENSION players with injury-shortened seasons (Jalen Williams:
+        # 33 GP/936 MP; also Banchero, Dyson Daniels, Christian Braun) get
+        # their estimated_market_value dragged down by MP even though
+        # their per-minute production is fine -- which shows up as a
+        # falsely large "overpaid" number. Checked whether this cuts both
+        # ways (i.e. could the same short-season noise also inflate a
+        # surplus number and falsely crown someone "Biggest surplus"?):
+        # across every Rookie Scale player above MIN_MINUTES, low MP only
+        # ever correlates with LOWER surplus (correlation +0.25, and no
+        # low-confidence rookie-scale player shows a large positive
+        # surplus without a matching high production percentile and a
+        # near-full season). So the bias is one-directional -- it only
+        # ever manufactures false "overpaid" verdicts, never false
+        # "underpaid" ones. That means:
+        #   - "Biggest surplus" (Underpaid side): safe to include Rookie
+        #     Scale players. This is what puts Wembanyama back in the
+        #     running instead of Kris Dunn.
+        #   - "Biggest overpay" (Overpaid side): Rookie Scale still
+        #     excluded, since that's exactly where the known bias lives.
+        # Re-check this reasoning (not just re-run the numbers) if the
+        # $-estimator's feature set changes -- see CLAUDE.md.
         under = headline_pool[headline_pool["market_value_verdict"] == "Underpaid"]
-        over = headline_pool[headline_pool["market_value_verdict"] == "Overpaid"]
+
+        overpay_pool = headline_pool
+        if "contract_type" in overpay_pool.columns:
+            overpay_pool = overpay_pool[overpay_pool["contract_type"] != "Rookie Scale"]
+        over = overpay_pool[overpay_pool["market_value_verdict"] == "Overpaid"]
     else:
         under = over = filtered
 
@@ -626,9 +626,9 @@ if _has_surplus:
             "Biggest surplus",
             under.loc[b, "player"],
             delta=_money(under.loc[b, "market_value_surplus"]),
-            help="Best value among veteran, rotation-minutes players whose cap hit falls outside the "
-                 "model's prediction interval. Excludes rookie-scale players (see Methodology) and "
-                 "anyone below the rotation-minutes threshold, where the $-estimator is known to be unreliable.",
+            help="Best value among rotation-minutes players whose cap hit falls outside the model's "
+                 "prediction interval. Includes rookie-scale players -- excludes anyone below the "
+                 "rotation-minutes threshold, where the $-estimator is known to be unreliable.",
         )
     else:
         headline_cols[1].metric("Biggest surplus", "-", help="No players outside the model's interval.")
@@ -640,11 +640,19 @@ if _has_surplus:
             over.loc[w, "player"],
             delta=_money(over.loc[w, "market_value_surplus"]),
             help="Worst value among veteran, rotation-minutes players whose cap hit falls outside the "
-                 "model's prediction interval. Excludes rookie-scale players (see Methodology) and "
-                 "anyone below the rotation-minutes threshold, where the $-estimator is known to be unreliable.",
+                 "model's prediction interval. Excludes rookie-scale players -- their short-season cap-hit "
+                 "estimates are known to be unreliable in the 'overpaid' direction (see Methodology) -- and "
+                 "anyone below the rotation-minutes threshold.",
         )
     else:
         headline_cols[2].metric("Biggest overpay", "-", help="No players outside the model's interval.")
+
+    st.caption(
+        "ℹ️ **Biggest surplus** includes rookie-scale players; **Biggest overpay** excludes "
+        "them. Not a typo -- rookie-scale players on short/injury-shortened seasons get an unreliable, "
+        "artificially low market-value estimate that can falsely flag them as 'overpaid,' but that same "
+        "effect never falsely flags someone as underpaid. See Methodology for details."
+    )
 
     n_conclusive = len(under) + len(over)
     # Denominator excludes players with no cap hit on file (free agents,
