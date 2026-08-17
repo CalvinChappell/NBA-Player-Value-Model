@@ -957,13 +957,13 @@ st.caption("Click **View** on any row to open that player's page. Column headers
 # on every tab, per Calvin's request that both stay primary,
 # front-and-center metrics everywhere -- not just their own dedicated tab.
 _BASIC_STATS_COLUMNS = [
-    "player", "team", "pos", "market_value_verdict", "estimate_confidence", "market_value_surplus", "cap_hit", "value_score",
+    "player", "team", "pos", "market_value_verdict", "estimate_confidence", "market_value_surplus", "cap_hit", "estimated_market_value", "value_score",
     "production_pctile", "FoulDraw_Value", "Rim_Scoring_Value",
     "AGE", "experience", "contract_type", "GP", "MP",
     "PPG", "RPG", "APG", "SPG", "BPG", "FG_PCT", "FG3_PCT", "FT_PCT",
 ]
 _ADVANCED_METRICS_COLUMNS = [
-    "player", "team", "pos", "market_value_verdict", "estimate_confidence", "market_value_surplus", "cap_hit", "value_score",
+    "player", "team", "pos", "market_value_verdict", "estimate_confidence", "market_value_surplus", "cap_hit", "estimated_market_value", "value_score",
     "production_pctile", "OBPM", "DBPM", "BPM", "EPM", "DARKO",
     "OnBall_Pct", "rTS_rel", "RAPM_3Y", "PVAL", "NET_ON_OFF", "Rim_Scoring_Value", "FoulDraw_Value",
 ]
