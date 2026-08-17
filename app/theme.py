@@ -162,6 +162,7 @@ def app_title_bar(title: str, subtitle: str = ""):
         <div class="app-title-bar">
             <div class="app-title" style="font-size:2rem; font-weight:800; color:{TEXT}; line-height:1.2;">{title}</div>
             <div class="app-subtitle" style="font-size:0.95rem; color:{MUTED_TEXT};">{subtitle}</div>
+            <div class="app-credit" style="font-size:0.75rem; color:{MUTED_TEXT}; margin-top:0.35rem;">Designed by Calvin Chappell</div>
         </div>
         """,
         unsafe_allow_html=True,
