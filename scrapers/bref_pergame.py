@@ -70,6 +70,16 @@ def scrape_per_game_stats(season_end_year: int) -> pd.DataFrame:
                 "player_id": player_id,
                 "player": player_cell.get_text(strip=True),
                 "team": stat("team_id") or stat("team_name_abbr"),
+                # Games started -- role signal (starter vs. bench) that's
+                # independent of per-minute efficiency metrics and total
+                # minutes. Feeds GS_PCT in model/dollar_estimate.py.
+                #
+                # Basketball-Reference renamed this data-stat from "gs" to
+                # "games_started" at some point (same pattern as "g" ->
+                # "games" on the Advanced page, see CLAUDE.md) -- try the
+                # current name first, fall back to the old one so this
+                # keeps working against either schema.
+                "GS": stat("games_started") or stat("gs"),
                 "MPG": stat("mp_per_g"),
                 "PPG": stat("pts_per_g"),
                 "RPG": stat("trb_per_g"),
@@ -95,7 +105,7 @@ def scrape_per_game_stats(season_end_year: int) -> pd.DataFrame:
         raise RuntimeError("Parsed zero rows from the per-game stats table -- check the cached HTML.")
 
     numeric_cols = [
-        "MPG", "PPG", "RPG", "APG", "SPG", "BPG",
+        "GS", "MPG", "PPG", "RPG", "APG", "SPG", "BPG",
         "FG_PCT", "FG3_PCT", "FT_PCT", "FTA_per_g", "FGA_per_g",
     ]
     for col in numeric_cols:

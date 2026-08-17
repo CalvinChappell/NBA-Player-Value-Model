@@ -27,9 +27,17 @@ What to look for:
      #1) should look about the same as before -- a useful control to confirm
      the fixes didn't just move the "who's underpaid" problem around.
   4. The $-estimator's printed holdout R^2 / coverage (from run_pipeline.py's
-     own console output) shouldn't have moved much -- fix #1 only changes
-     what gets FED to the model at prediction time for Rookie Scale rows, it
-     doesn't change what the model is trained on.
+     own console output) shouldn't have moved much from the age/experience
+     fix alone -- that one only changes what gets FED to the model at
+     prediction time for Rookie Scale rows, it doesn't change training.
+  5. NEW (Tier 1 features -- GS_PCT, pos_spectrum, draft_pick_filled): R^2
+     SHOULD move now, since these add real training signal. Check the
+     "Feature importances" printout in run_pipeline.py's console output --
+     GS_PCT and draft_pick_filled should show up with non-trivial weight if
+     they're pulling their weight. If R^2 barely moves, that's a real
+     result too (means role/pedigree don't explain much beyond what
+     production/age/experience already captured) -- not a sign anything's
+     broken.
 """
 
 import pandas as pd

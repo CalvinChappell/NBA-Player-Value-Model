@@ -95,8 +95,79 @@ from config import (
     PRODUCTION_METRICS,
     SALARY_FIELD_FOR_REGRESSION,
 )
+from model.positions import position_spectrum
 
-_FEATURE_CANDIDATES = PRODUCTION_METRICS + ["AGE", "experience", "MP"]
+# pos_spectrum (positional scarcity) and draft_pick_filled (draft pedigree)
+# capture salary variance that's structurally invisible to the
+# production/age/experience/minutes features alone -- see
+# _engineer_dollar_estimate_features() below for how each is built. Added
+# because R^2 was landing around 0.5-0.6 and these were sitting unused (or
+# one scrape away) in the rest of the pipeline.
+#
+# GS_PCT (games started share) was tried here too and deliberately pulled
+# back out. It came to dominate the model (54.8% of total feature
+# importance, more than everything else combined) and did so in a way that
+# fights the tool's actual purpose: it prices a player by the role his
+# CURRENT team has already given him, not by what his production says he's
+# worth. That's backwards for exactly the players a bargain-hunting model
+# should be most excited about -- an efficient player stuck in a bench role
+# who hasn't gotten his shot yet. Concrete case that caught it: Dylan
+# Harper (84.7th-percentile production in his minutes, but started only 4
+# of 69 games as a rookie) went from a +$24.9M surplus to a -$2.5M one
+# between one run and the next, almost entirely because of GS_PCT, not
+# because his actual play changed. GS/GS_PCT are still scraped/computed
+# (see below) in case they're useful for display, just not fed to the
+# regression. Don't re-add this without a real fix for the role-vs-skill
+# causality problem, not just a smaller weight -- tree ensembles don't
+# have a "cap this feature's importance" knob, so partially including it
+# doesn't reliably avoid this.
+_FEATURE_CANDIDATES = PRODUCTION_METRICS + [
+    "AGE", "experience", "MP", "pos_spectrum", "draft_pick_filled",
+]
+
+# Sentinel draft pick for undrafted players -- deliberately worse than the
+# actual last pick (60), since going entirely unpicked is a (mildly)
+# stronger negative signal than being drafted last. Only applied to
+# players `experience_is_estimated` already flags as undrafted (see
+# model/merge.py's contract_type logic for why that's the reliable
+# undrafted signal) -- NOT to drafted players who happen to be missing
+# draft_pick for some other reason, which get the pool median instead.
+UNDRAFTED_PICK_SENTINEL = 61
+
+
+def _engineer_dollar_estimate_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Adds GS_PCT, pos_spectrum, and draft_pick_filled to df. Called once
+    at the top of add_market_value_estimate() so both the training-pool
+    selection (inside fit_market_value_model) and the full-league
+    prediction pass see the same engineered columns.
+    """
+    df = df.copy()
+
+    # NOTE: GS_PCT is computed here but deliberately NOT in
+    # _FEATURE_CANDIDATES above -- see the comment there for why (it
+    # dominated the model and priced players by their current role rather
+    # than their production). Kept around in case it's useful for display
+    # elsewhere later.
+    if "GS" in df.columns and "GP" in df.columns:
+        gp_safe = pd.to_numeric(df["GP"], errors="coerce").replace(0, np.nan)
+        gs = pd.to_numeric(df["GS"], errors="coerce")
+        df["GS_PCT"] = (gs / gp_safe).clip(0, 1)
+
+    if "pos" in df.columns:
+        df["pos_spectrum"] = df["pos"].apply(position_spectrum)
+
+    if "draft_pick" in df.columns:
+        draft_pick_num = pd.to_numeric(df["draft_pick"], errors="coerce")
+        is_undrafted = (
+            df["experience_is_estimated"].fillna(False)
+            if "experience_is_estimated" in df.columns
+            else pd.Series(False, index=df.index)
+        )
+        filled = draft_pick_num.where(~is_undrafted, UNDRAFTED_PICK_SENTINEL)
+        median_pick = draft_pick_num.median()
+        df["draft_pick_filled"] = filled.fillna(median_pick)
+
+    return df
 
 # Floor for the log transform: cap hits can be 0 or missing for players
 # on non-guaranteed deals, and log(0) is undefined.
@@ -271,6 +342,7 @@ def fit_market_value_model(df: pd.DataFrame, min_minutes: int = 500):
 
 def add_market_value_estimate(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
+    df = _engineer_dollar_estimate_features(df)
     models, features, diag = fit_market_value_model(df)
 
     space = "log(salary)" if diag["log_space"] else "salary"

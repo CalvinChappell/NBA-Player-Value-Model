@@ -73,14 +73,26 @@ these three shapes before writing new code — it usually does.
 
 - **Basketball-Reference silently renames data-stat attributes.** Has
   broken `playoff_GP` (regular-season "advanced" table uses `games`,
-  the playoffs "advanced" table still uses the old `g`) and `FTr` (a
+  the playoffs "advanced" table still uses the old `g`), `FTr` (a
   stale local copy of `bref_advanced.py` was simply missing the line —
   not a bref change that time, but the symptom looked identical: the
-  metric goes silently blank). When a metric breaks after a fresh
-  scrape, write a small diagnostic that checks each required column
-  individually rather than guessing — see `diagnose_contracts.py` and
-  `diagnose_foul_draw.py` for the pattern (both still in the repo root,
-  reusable as templates).
+  metric goes silently blank), and `GS` (games started — added Aug 2026
+  for the $-estimator's GS_PCT feature, used `data-stat="gs"` which
+  returned nothing; the live per_game page had already moved to
+  `games_started`, same rename pattern as `g`->`games`). Fixed with a
+  `stat("games_started") or stat("gs")` fallback in `bref_pergame.py`,
+  the same defensive pattern already used there for `name_display`/
+  `player` and `team_name_abbr`/`team_id`. When a metric breaks after a
+  fresh scrape — or silently shows up as all-NaN / vanishes from a
+  "feature importances" printout without erroring — write a small
+  diagnostic that checks each required column individually rather than
+  guessing — see `diagnose_contracts.py` and `diagnose_foul_draw.py`
+  for the pattern (both still in the repo root, reusable as templates).
+  The GS bug specifically was caught by noticing GS_PCT was just
+  *absent* from the printed feature-importances list — worth checking
+  that list after adding any new $-estimator feature, since a
+  silently-all-NaN feature gets dropped by `_usable_features()` rather
+  than erroring.
 - **`.gitignore` denies `outputs/*` by default**, with specific files
   re-allowed one at a time (`!outputs/player_value_model_public.csv`,
   `!outputs/team_payroll.csv`, `!outputs/payroll_only_players.csv`).
@@ -172,12 +184,80 @@ these three shapes before writing new code — it usually does.
   itself is untouched -- still shown separately on the player page as
   "how much is this guy paid, league-wide," which is a legitimate,
   different question from "is he paid what he's worth."
-- **Both fixes above are code-complete but NOT yet validated** -- the
-  sandbox this was developed in has no sklearn, so re-run the pipeline
-  in Calvin's venv and check `diagnose_value_fixes.py`'s output
-  (specifically: does Wembanyama's value_score now beat Scheierman's,
-  and do rookie-scale stars' estimated_market_value look sane) before
-  treating either fix as shipped.
+- **Both fixes above were validated in Calvin's venv (Aug 2026) and
+  shipped.** Wembanyama's value_score (92.5) now clearly beats
+  Scheierman's (49.4); coverage held at 80.9%/50.8% against 80%/50%
+  nominal, R^2=0.536. One real, separate pattern surfaced by the fix
+  (not a bug in it): a few rookie-scale extension players with
+  injury-shortened 2025-26 seasons (Jalen Williams: 33 GP/936 MP;
+  also Banchero, Dyson Daniels, Christian Braun) show large "overpaid"
+  point estimates, because MP is a real model feature and a short
+  season drags the prediction down regardless of per-minute rate
+  stats. All four are correctly flagged Low/Medium `estimate_confidence`
+  with wide intervals, so the model isn't presenting them as confident
+  calls -- this is the existing confidence system doing its job, just
+  more visible now that the systemic youth penalty isn't masking it.
+  Rookie Scale players are still excluded from the "Biggest
+  Surplus"/"Biggest Overpay" HEADLINE metrics specifically because of
+  this (see the comment above `under = headline_pool[...]` in
+  streamlit_app.py) -- safe to revisit if a future fix addresses the
+  short-season sensitivity directly (e.g. a distinct low-MP confidence
+  penalty), but don't remove that exclusion without re-checking this.
+- **Tier 1 $-estimator feature additions (Aug 2026): GS_PCT,
+  pos_spectrum, draft_pick_filled.** R^2 was ~0.54 with only
+  production + AGE + experience + MP as inputs -- real signal
+  (role, positional scarcity, draft pedigree) was sitting unused or
+  one scrape away. `GS` (games started) is now scraped in
+  `scrapers/bref_pergame.py` (wasn't before -- Basketball-Reference's
+  per-game table has it, just wasn't being read); `model/positions.py`
+  gained `position_spectrum()` (numeric Guard=0/Wing=1/Big=2, reusing
+  the existing Guard/Wing/Big grouping rather than a second position
+  scheme); `model/dollar_estimate.py` gained
+  `_engineer_dollar_estimate_features()` which builds GS_PCT (=
+  GS/GP, a role signal independent of total minutes or per-minute
+  efficiency), pos_spectrum, and draft_pick_filled (real overall pick
+  for drafted players, `UNDRAFTED_PICK_SENTINEL = 61` -- worse than
+  the actual last pick, 60 -- for players `experience_is_estimated`
+  flags as undrafted, pool median for drafted players missing
+  draft_pick for other reasons). Verified the pure-pandas logic
+  against real cached data (position_spectrum values sane,
+  undrafted-sentinel split 153/583 players correctly) but NOT yet
+  validated end-to-end with sklearn -- re-run in Calvin's venv and
+  check whether R^2 actually moved and whether GS_PCT/draft_pick_filled
+  show up with real weight in the "Feature importances" printout
+  before treating this as more than a plausible hypothesis. A next
+  tier (All-Star/All-NBA selection count) was discussed and explicitly
+  deferred -- needs a new scraper against Basketball-Reference's
+  awards pages, only worth it if Tier 1 doesn't move R^2 enough.
+- **GS_PCT (games-started share) was tried as a fourth Tier 1 feature
+  and reverted -- don't re-add it without solving the problem below
+  first.** It moved R^2 further (0.606 -> 0.636) but came to dominate
+  the model at 54.8% of total feature importance, more than every
+  other feature combined, and did so in a way that fights the tool's
+  actual purpose: it prices a player by the role his CURRENT team has
+  already handed him, not by what his production says he's worth.
+  That's backwards for exactly the players this model should be most
+  useful for -- an efficient player stuck in a bench role who hasn't
+  gotten a real shot yet, who a smarter team might sign and start next
+  summer. Concrete case that caught it: Dylan Harper (84.7th-percentile
+  production in his minutes, but started only 4 of his 69 games as a
+  rookie) swung from a +$24.9M surplus to a -$2.5M one between runs,
+  almost entirely because of GS_PCT rather than any change in his
+  actual play. Calvin's framing, worth keeping verbatim for next time:
+  "there's plenty of players who put up good advanced metrics, and a
+  new team takes a shot on them with a larger contract in FA and they
+  produce more basic stats in a larger/starting role" -- GS_PCT can't
+  distinguish "not good enough to start" from "good enough but hasn't
+  been given the chance," and the model was reading every case as the
+  former. GS/GS_PCT are still scraped and computed
+  (`_engineer_dollar_estimate_features` in `model/dollar_estimate.py`)
+  in case they're useful for display elsewhere, just removed from
+  `_FEATURE_CANDIDATES`. If this gets revisited, "give it a smaller
+  weight" isn't a real lever for a tree ensemble (feature_importances_
+  is an output of the fit, not an input you set) -- a real fix would
+  need something like a much coarser bucketed version, or excluding it
+  specifically for players whose per-minute production already ranks
+  well above their role would predict, not a partial re-inclusion.
 
 ## Don't run git commands from the sandbox
 

@@ -30,6 +30,12 @@ BIG = "Big"
 
 POSITION_GROUPS = [GUARD, WING, BIG]
 
+# Numeric encoding for position_spectrum() below -- a single continuous
+# "how big is this guy positionally" score, since regression models need a
+# number, not the "Guard"/"Guard/Wing" style label position_group_label()
+# produces for display.
+_SPECTRUM_SCORE = {GUARD: 0.0, WING: 1.0, BIG: 2.0}
+
 # Single positions -> one group.
 _PRIMARY_MAP = {
     "PG": [GUARD],
@@ -87,6 +93,23 @@ def position_groups(pos) -> list:
         return [g for g in POSITION_GROUPS if g in found]
 
     return []
+
+
+def position_spectrum(pos) -> float:
+    """Numeric Guard(0) -> Wing(1) -> Big(2) score, averaged across groups
+    for dual-listed combo positions (e.g. a G/F combo scores 0.5). NaN for
+    missing/unrecognized position labels.
+
+    Used as a $-estimator regression feature (model/dollar_estimate.py):
+    positional scarcity affects pay in ways BPM/EPM/DARKO don't capture on
+    their own, and this reuses the same Guard/Wing/Big grouping already
+    used for position-relative percentiles rather than introducing a
+    second, inconsistent position scheme.
+    """
+    groups = position_groups(pos)
+    if not groups:
+        return float("nan")
+    return sum(_SPECTRUM_SCORE[g] for g in groups) / len(groups)
 
 
 def position_group_label(pos) -> str:

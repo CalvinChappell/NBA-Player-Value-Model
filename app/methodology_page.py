@@ -29,18 +29,32 @@ def render_methodology_page():
         """
 Every rostered player gets a **Production Percentile** (a weighted blend of
 BPM, EPM, and DARKO -- box-score-only vs. play-by-play-informed impact
-metrics, weighted toward the latter two).
+metrics, weighted more heavily toward EPM and DARKO, the play-by-play-informed
+pair).
 
 A regression model, trained on veteran contracts only (rookie-scale
 salaries are CBA-slotted, not performance-priced, so training on them would
 teach the wrong relationship), predicts what each player's cap hit "should"
-be from their production profile. The gap between a player's actual cap hit
-and that prediction is **Market Value Surplus** -- a dollar figure. It ships
-with an uncertainty range (an 80% band and a tighter 50% band) built via
-cross-conformal prediction, not a bare point estimate, because a single
-number implies more precision than a model with real, measurable error
-deserves. The pipeline prints realized holdout coverage each run so that
-80% claim is checked against reality rather than asserted.
+be from their production profile, age, experience, minutes played,
+position, and draft pedigree. The gap between a
+player's actual cap hit and that prediction is **Market Value Surplus** -- a
+dollar figure. It ships with an uncertainty range (an 80% band and a
+tighter 50% band) built via cross-conformal prediction, not a bare point
+estimate, because a single number implies more precision than a model with
+real, measurable error deserves. The pipeline prints realized holdout
+coverage each run so that 80% claim is checked against reality rather than
+asserted.
+
+For players still on a rookie-scale contract -- who by definition aren't in
+the training pool, since rookie-scale pay is CBA-slotted rather than
+market-priced -- age and experience are swapped out for a typical veteran's
+before predicting. Without that adjustment the model reads "young, early
+career" as "cheap," which is true across the veteran training pool (where
+the only young players are undrafted or second-round guys on modest deals)
+but wrong for an elite player who's simply early in a max-caliber career.
+The question becomes "what would a typically-aged veteran with this
+production earn," which is the question the model can actually answer with
+its training data.
 
 **Value Score** is **Production Percentile** minus how much of a player's
 own estimated market value he's actually being paid (also expressed as a
@@ -107,6 +121,17 @@ building a real one requires multiple years of history per player and a
 correction for survivorship bias (players who declined tend to leave the
 league, which biases a naive "average performance by age" curve upward at
 the old end). That's a separate project, not a label.
+
+Related: minutes played is a real input to the model, so a player coming
+off an injury-shortened or otherwise unusual season can show a
+lower-than-expected estimate even with strong per-minute production --
+the model has less to go on for how a team would actually value his
+role/durability that year. This shows up most visibly for a handful of
+rookie-scale extension players with short 2025-26 seasons. It's not a
+separate bug to fix; it's the same **estimate_confidence** tag (Low /
+Medium / High, shown on every player page) doing its job -- these cases
+are correctly flagged Low or Medium rather than presented as confident
+calls, so read the direction as a hint in those cases, not a finding.
 
 Related: the $-model's training pool of veterans thins out fast past the
 mid-30s, so its prediction interval for very late-career players (LeBron
