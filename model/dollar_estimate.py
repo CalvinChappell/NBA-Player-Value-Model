@@ -66,7 +66,15 @@ CAVEATS worth stating out loud to anyone you show this to:
     best players cluster at a ceiling the model can't predict past, and
     will tend to look "fairly paid" no matter how good they are.
   - Rookie-scale predictions extrapolate outside the training pool
-    (which is veterans only), so treat them as the least reliable.
+    (which is veterans only), so treat them as the least reliable. As of
+    August 2026, AGE and experience are neutralized (set to the veteran
+    training pool's median) specifically for Rookie Scale predictions --
+    see the comment in add_market_value_estimate() -- because those two
+    features, learned from a training pool that by construction excludes
+    every young player good enough to still be on a rookie deal, were
+    dragging elite young producers (Wembanyama, Holmgren) toward
+    replacement-level pay. Production-based extrapolation risk remains;
+    age/experience-based extrapolation risk for this group does not.
   - Missing features are median-filled, so a player lacking EPM/DARKO
     gets a confident-looking estimate built on partly invented inputs.
     `n_production_metrics_available` tells you who those players are.
@@ -180,6 +188,15 @@ def fit_market_value_model(df: pd.DataFrame, min_minutes: int = 500):
     holdout_r2 = r2_score(y_raw, _from_model_space(oof_point))
     r2_model_space = r2_score(y, oof_point)
 
+    # Median AGE / experience of the actual training pool, used later to
+    # neutralize those two features specifically for Rookie Scale
+    # predictions (see the age/experience note in add_market_value_estimate
+    # for why that's necessary).
+    veteran_median_age = float(train_pool["AGE"].median()) if "AGE" in train_pool.columns else None
+    veteran_median_experience = (
+        float(train_pool["experience"].median()) if "experience" in train_pool.columns else None
+    )
+
     scores = np.maximum(oof_lo - y, y - oof_hi)
     n_cal = len(scores)
 
@@ -241,6 +258,8 @@ def fit_market_value_model(df: pd.DataFrame, min_minutes: int = 500):
         "n_train": len(X),
         "n_folds": n_splits,
         "log_space": MARKET_VALUE_LOG_TRANSFORM,
+        "veteran_median_age": veteran_median_age,
+        "veteran_median_experience": veteran_median_experience,
     }
 
     models = {
@@ -284,6 +303,39 @@ def add_market_value_estimate(df: pd.DataFrame) -> pd.DataFrame:
     # league median so a player missing e.g. EPM still gets an estimate
     # (just a slightly less-informed one).
     X_all = df[features].apply(lambda col: col.fillna(col.median()))
+
+    # --- Neutralize AGE/experience for Rookie Scale predictions --------
+    # The model trains ONLY on "Veteran" contract_type players (rookie-scale
+    # salaries are CBA-slotted, not performance-priced, so training on them
+    # would teach the wrong relationship -- see module docstring). But that
+    # means the training pool's low-age/low-experience rows are almost all
+    # undrafted or second-round players on cheap deals -- there is close to
+    # no one in it who was young AND a star, because a young star is
+    # exactly the player who's still ON a rookie-scale deal and therefore
+    # excluded from training. AGE and experience are useful, legitimate
+    # features for pricing actual veterans (aging curves, extension
+    # timing), but for a rookie-scale player they become a liability: the
+    # model has learned "low age + low experience -> cheap" from a training
+    # population where that was true for the wrong reason (undrafted /
+    # replacement-level, not "still on a rookie deal"), and extrapolating
+    # that onto e.g. Victor Wembanyama drags his estimate down toward
+    # replacement-level pay despite elite production.
+    #
+    # Fix: for Rookie Scale rows only, swap in the veteran training pool's
+    # median AGE/experience before predicting. This reframes the question
+    # from "what would a young player with this production earn" (a
+    # question the model has no real comps for) to "what would a
+    # typically-aged veteran with this production earn" (the question the
+    # model was actually trained to answer). Veteran predictions are
+    # completely untouched by this.
+    if "contract_type" in df.columns:
+        is_rookie_scale = df["contract_type"].eq("Rookie Scale").to_numpy()
+        for feat, neutral_value in (
+            ("AGE", diag.get("veteran_median_age")),
+            ("experience", diag.get("veteran_median_experience")),
+        ):
+            if feat in X_all.columns and neutral_value is not None:
+                X_all.loc[is_rookie_scale, feat] = neutral_value
 
     q = models["conformal_q"]
     q_inner = models["conformal_q_inner"]

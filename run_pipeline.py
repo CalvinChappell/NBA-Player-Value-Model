@@ -110,8 +110,14 @@ def main():
     # each one is a 0-100 score that gets its own bar on the player page.
     df = value_metrics.add_value_metrics(df)
     df = percentiles.add_percentiles(df)
-    df = value_score.add_value_score(df)
 
+    # $-estimator runs BEFORE value_score now: Value Score's pay side is a
+    # percentile rank of cap_hit/estimated_market_value (see
+    # model/value_score.py docstring for why), so estimated_market_value has
+    # to exist first. If the $-estimator can't fit, it falls back to NA
+    # columns below and value_score.add_value_score() degrades gracefully to
+    # its old production_pctile - salary_pctile formula rather than going
+    # all-NaN.
     try:
         df = dollar_estimate.add_market_value_estimate(df)
     except RuntimeError as exc:
@@ -128,6 +134,8 @@ def main():
             df[col] = pd.NA
         df["market_value_verdict"] = "Unknown"
         df["estimate_confidence"] = "Unknown"
+
+    df = value_score.add_value_score(df)
 
     # Percentile versions of the derived metrics (value score, market value
     # surplus, estimated market value) -- these only exist after the steps

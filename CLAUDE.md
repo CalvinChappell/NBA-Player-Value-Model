@@ -134,6 +134,51 @@ these three shapes before writing new code — it usually does.
   pushed, not just sitting as an edited file -- and check the *live*
   app, not just local output, before calling something done.
 
+- **The $-estimator's veteran-only training pool bakes in an age bias
+  against young stars.** Trained only on `contract_type == "Veteran"`
+  (rookie-scale salaries are CBA-slotted, not performance-priced -- see
+  `model/dollar_estimate.py`'s module docstring), which means its
+  training pool's low-age/low-experience rows are almost all undrafted
+  or second-round players on cheap deals -- there's essentially no one
+  in it who was young AND a star, because a young star is exactly the
+  player who's still on a rookie-scale deal and therefore excluded.
+  AGE/experience are legitimate features for real veterans, but for a
+  Rookie Scale player they became a liability: the model learned "young
+  -> cheap" for the wrong reason and dragged elite young producers
+  (Wembanyama, Holmgren) toward replacement-level estimates despite
+  90th-99th-percentile production. Fixed in
+  `add_market_value_estimate()` by swapping in the veteran training
+  pool's median AGE/experience for Rookie Scale rows only, before
+  predicting -- reframes the question from "what would a young player
+  with this production earn" (no real comps exist) to "what would a
+  typically-aged veteran with this production earn" (what the model
+  actually learned). Veteran predictions are untouched.
+- **Value Score's old formula (`production_pctile - salary_pctile`)
+  broke down at the top of the market.** Percentile rank of raw cap hit
+  compresses badly for right-skewed salary distributions: a big-sounding
+  but still-below-market number (a rookie-scale year-4 salary) lands at
+  a HIGH percentile purely because most of the league makes less --
+  even though it's actually a steep discount. This is what let Baylor
+  Scheierman (modest production, modest pay) out-score Wembanyama
+  (99th-percentile production, discounted-but-large rookie salary).
+  Fixed in `model/value_score.py` by replacing the pay side with a
+  percentile rank of `cap_hit / estimated_market_value` (how much of a
+  player's own estimated worth he's actually paid) instead of a
+  percentile rank of raw dollars. Depends on the $-estimator fix above --
+  `run_pipeline.py` now runs `dollar_estimate.add_market_value_estimate()`
+  BEFORE `value_score.add_value_score()` for exactly this reason. Falls
+  back to the old formula if `estimated_market_value` is unavailable, so
+  it degrades gracefully rather than going all-NaN. `salary_pctile`
+  itself is untouched -- still shown separately on the player page as
+  "how much is this guy paid, league-wide," which is a legitimate,
+  different question from "is he paid what he's worth."
+- **Both fixes above are code-complete but NOT yet validated** -- the
+  sandbox this was developed in has no sklearn, so re-run the pipeline
+  in Calvin's venv and check `diagnose_value_fixes.py`'s output
+  (specifically: does Wembanyama's value_score now beat Scheierman's,
+  and do rookie-scale stars' estimated_market_value look sane) before
+  treating either fix as shipped.
+
 ## Don't run git commands from the sandbox
 
 Even read-only ones (`git status`, `git diff`) can leave a stale

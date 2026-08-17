@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # so `import co
 
 from config import (  # noqa: E402
     FIRST_APRON,
+    MIN_MINUTES,
     OUTPUT_DIR,
     SALARY_CAP,
     SECOND_APRON,
@@ -71,7 +72,8 @@ def load_data(path: Path, mtime: float) -> pd.DataFrame:
 
 app_title_bar(
     "NBA Player Value Model",
-    "Production percentile vs. salary percentile, across every rostered player. "
+    "Production percentile vs. how much of their own estimated market value each player "
+    "is paid, across every rostered player. "
     "Positive Value Score = outproducing the contract; negative = overpaid relative to production.",
 )
 
@@ -566,11 +568,55 @@ if _has_surplus:
     # fairly paid -- i.e. whose cap hit falls OUTSIDE its prediction
     # interval. Ranking on raw surplus alone surfaces players with huge
     # point-estimate gaps that sit entirely inside the model's own
-    # uncertainty (typically rookies, whose salaries are CBA-slotted and
-    # who sit outside the veterans-only training distribution).
+    # uncertainty.
     if "market_value_verdict" in filtered.columns:
-        under = filtered[filtered["market_value_verdict"] == "Underpaid"]
-        over = filtered[filtered["market_value_verdict"] == "Overpaid"]
+        headline_pool = filtered
+        # Two populations the $-estimator is known to extrapolate badly
+        # for, excluded from these two headline numbers specifically
+        # (NOT from the full table below, which still shows them with
+        # their existing confidence caveats intact):
+        #
+        # 1. Rookie-scale players. The model trains on veterans only
+        #    (see model/dollar_estimate.py), and a real case exposed a
+        #    genuine bias, not just noise: after contract_type correctly
+        #    stopped mislabeling ~200 modest-salary young second-contract
+        #    veterans as "Rookie Scale" (see CLAUDE.md), those players
+        #    became the dominant "young player" signal in training --
+        #    which taught the model that youth predicts a modest salary,
+        #    and it applies that pattern to elite rookie-scale outliers
+        #    too. Result: Wembanyama (99.8th percentile production)
+        #    priced BELOW his own already-below-market rookie salary, and
+        #    Jalen Williams / Paolo Banchero / Chet Holmgren -- all on
+        #    big, well-earned rookie-scale extensions -- showing as the
+        #    most "overpaid" players in the entire league.
+        #
+        #    UPDATE (Aug 2026): the root cause is now fixed directly in
+        #    add_market_value_estimate() -- AGE/experience get neutralized
+        #    to the veteran training pool's median specifically for
+        #    Rookie Scale predictions, so the model stops extrapolating
+        #    "young -> cheap" onto players it never actually trained on.
+        #    Value Score was ALSO changed (model/value_score.py) to derive
+        #    its pay side from estimated_market_value, so it is NOT
+        #    independent of this bug anymore the way this comment used to
+        #    claim -- it inherits the same fix, not a separate immunity.
+        #    Once both fixes are validated (see diagnose_value_fixes.py)
+        #    and rookie-scale market_value_surplus numbers look sane
+        #    again, this exclusion is very likely safe to remove -- it's
+        #    being left in place for now only because the fix hasn't been
+        #    run end-to-end yet (sklearn isn't available in every dev
+        #    environment this project gets edited from).
+        # 2. Sub-rotation minutes. A handful of low-MP players were
+        #    producing wild point estimates (Ty Jerome's estimated
+        #    market value came out near $40M against a $9.2M salary) --
+        #    the same small-sample instability MIN_MINUTES already
+        #    guards against for percentile ranking, just not previously
+        #    applied here.
+        if "contract_type" in headline_pool.columns:
+            headline_pool = headline_pool[headline_pool["contract_type"] != "Rookie Scale"]
+        if "MP" in headline_pool.columns:
+            headline_pool = headline_pool[pd.to_numeric(headline_pool["MP"], errors="coerce") >= MIN_MINUTES]
+        under = headline_pool[headline_pool["market_value_verdict"] == "Underpaid"]
+        over = headline_pool[headline_pool["market_value_verdict"] == "Overpaid"]
     else:
         under = over = filtered
 
@@ -580,7 +626,9 @@ if _has_surplus:
             "Biggest surplus",
             under.loc[b, "player"],
             delta=_money(under.loc[b, "market_value_surplus"]),
-            help="Best value among players whose cap hit falls outside the model's prediction interval.",
+            help="Best value among veteran, rotation-minutes players whose cap hit falls outside the "
+                 "model's prediction interval. Excludes rookie-scale players (see Methodology) and "
+                 "anyone below the rotation-minutes threshold, where the $-estimator is known to be unreliable.",
         )
     else:
         headline_cols[1].metric("Biggest surplus", "-", help="No players outside the model's interval.")
@@ -591,7 +639,9 @@ if _has_surplus:
             "Biggest overpay",
             over.loc[w, "player"],
             delta=_money(over.loc[w, "market_value_surplus"]),
-            help="Worst value among players whose cap hit falls outside the model's prediction interval.",
+            help="Worst value among veteran, rotation-minutes players whose cap hit falls outside the "
+                 "model's prediction interval. Excludes rookie-scale players (see Methodology) and "
+                 "anyone below the rotation-minutes threshold, where the $-estimator is known to be unreliable.",
         )
     else:
         headline_cols[2].metric("Biggest overpay", "-", help="No players outside the model's interval.")

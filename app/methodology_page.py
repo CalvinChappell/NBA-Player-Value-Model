@@ -29,19 +29,30 @@ def render_methodology_page():
         """
 Every rostered player gets a **Production Percentile** (a weighted blend of
 BPM, EPM, and DARKO -- box-score-only vs. play-by-play-informed impact
-metrics, weighted toward the latter two) and a **Salary Percentile** (cap
-hit relative to the rest of the league). **Value Score** is the gap between
-them.
+metrics, weighted toward the latter two).
 
-Separately, a regression model predicts each veteran's cap hit from their
-production profile. The gap between a player's actual cap hit and that
-prediction is **Market Value Surplus** -- the dollar-denominated version of
-the same idea. It ships with an uncertainty range (an 80% band and a
-tighter 50% band) built via cross-conformal prediction, not a bare point
-estimate, because a single number implies more precision than a model with
-real, measurable error deserves. The pipeline prints realized holdout
-coverage each run so that 80% claim is checked against reality rather than
-asserted.
+A regression model, trained on veteran contracts only (rookie-scale
+salaries are CBA-slotted, not performance-priced, so training on them would
+teach the wrong relationship), predicts what each player's cap hit "should"
+be from their production profile. The gap between a player's actual cap hit
+and that prediction is **Market Value Surplus** -- a dollar figure. It ships
+with an uncertainty range (an 80% band and a tighter 50% band) built via
+cross-conformal prediction, not a bare point estimate, because a single
+number implies more precision than a model with real, measurable error
+deserves. The pipeline prints realized holdout coverage each run so that
+80% claim is checked against reality rather than asserted.
+
+**Value Score** is **Production Percentile** minus how much of a player's
+own estimated market value he's actually being paid (also expressed as a
+percentile, across the league). That second half is deliberately NOT a
+percentile rank of raw salary -- salaries are heavily right-skewed, so a
+big-but-still-below-market number (a rookie-scale veteran-caliber salary,
+say) lands at a misleadingly high percentile purely because most of the
+league makes less, understating just how big a bargain that player actually
+is. Comparing pay to that player's own estimated worth instead avoids that
+distortion, and keeps Value Score and Market Value Surplus pointed at the
+same underlying estimate rather than running two different, sometimes
+disagreeing, kinds of math.
 
 **Rim Scoring Value** and **Foul-Drawing Value** are baseball-style
 efficiency-times-volume composites for two specific skills, built because
