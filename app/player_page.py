@@ -10,10 +10,45 @@ RAPM, PVAL, Net On/Off -- sourced from databallr.com).
 import streamlit as st
 
 from app.percentile_bars import render_percentile_bars
-from app.theme import TRACK
+from app.theme import MUTED_TEXT, TEXT, TRACK
+from app import verdict_style
 from config import EXTREME_VETERAN_AGE_THRESHOLD
 
 _DIVIDER_HTML = f"<hr style='margin: 0.25rem 0 0.75rem 0; border-color: {TRACK};'>"
+
+
+def _verdict_badge_html(verdict: str, confidence) -> str:
+    """The Market Value Surplus tile's verdict badge.
+
+    Built as raw HTML rather than st.metric's delta (whose only styling
+    knob is a colored arrow -- normal/inverse/off) so it can carry the
+    same confidence-aware fade as the leaderboard's Verdict column (see
+    app/verdict_style.py for why that fade exists at all, and for why
+    the badge stays a solid fill rather than the more obvious hollow/
+    transparent treatment -- this app runs a dark theme, and a
+    transparent Low-confidence badge would be unreadable against it).
+    """
+    base = verdict_style.verdict_base(verdict)
+    color = verdict_style.VERDICT_COLORS.get(base)
+    if color is None:
+        return ""
+    text = verdict_style.verdict_text(verdict, confidence)
+    amount = verdict_style.CONFIDENCE_BLEND.get(confidence, 0.0)
+    weight = verdict_style.CONFIDENCE_WEIGHT.get(confidence, 600)
+    fill = verdict_style.rgb(verdict_style.lighten(color, amount))
+    # The border stays at full verdict-color strength at every tier --
+    # unlike the fill, which is what actually fades -- so it reads
+    # clearly against both a pale Low-confidence fill and the page's own
+    # dark chrome. Only its line style changes: solid normally, dashed
+    # for Low, echoing the "not fully committed" convention from the
+    # original mockup without relying on transparency to sell it.
+    border = verdict_style.rgb(color)
+    border_style = "dashed" if confidence == "Low" else "solid"
+    return (
+        f'<span style="display:inline-flex; align-items:center; padding:3px 11px; '
+        f'border-radius:6px; font-size:0.85rem; background:{fill}; color:#0B0F1A; '
+        f'border:1.5px {border_style} {border}; font-weight:{weight};">{text}</span>'
+    )
 
 
 def _fmt(value, kind: str) -> str:
@@ -197,22 +232,26 @@ def render_player_page(df, default_player: str | None = None, compact: bool = Fa
         # The verdict comes from the prediction interval, not the raw
         # surplus: a gap that sits inside the model's uncertainty band
         # isn't something the model can actually distinguish from zero.
-        if verdict == "Underpaid":
-            delta_txt, delta_color = "Underpaid", "normal"
-        elif verdict == "Overpaid":
-            delta_txt, delta_color = "Overpaid", "inverse"
-        elif verdict == "Leaning underpaid":
-            delta_txt, delta_color = "Leaning underpaid", "normal"
-        elif verdict == "Leaning overpaid":
-            delta_txt, delta_color = "Leaning overpaid", "inverse"
-        else:
-            delta_txt, delta_color = "Within model range", "off"
-        v3.metric(
-            "Market Value Surplus",
-            _fmt(surplus, "signed_money"),
-            delta=delta_txt,
-            delta_color=delta_color,
-        )
+        #
+        # Badge text is the verdict itself (e.g. "Fairly paid") rather
+        # than the old generic "Within model range" -- matching what the
+        # leaderboard's Verdict column already says for the same case,
+        # so the two surfaces describe a player the same way.
+        confidence = row.get("estimate_confidence")
+        badge = _verdict_badge_html(verdict, confidence)
+        with v3:
+            st.markdown(
+                f"""
+                <div style="padding-top:0.25rem;">
+                    <div style="font-size:0.875rem; color:{MUTED_TEXT};">Market Value Surplus</div>
+                    <div style="font-size:1.75rem; font-weight:600; color:{TEXT}; line-height:1.3; margin:0.1rem 0 0.4rem;">
+                        {_md(_fmt(surplus, "signed_money"))}
+                    </div>
+                    {badge}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
     else:
         v3.metric("Market Value Surplus", "--")
 

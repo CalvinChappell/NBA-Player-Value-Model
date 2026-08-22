@@ -31,6 +31,7 @@ from config import (  # noqa: E402
 from app.player_page import render_player_page  # noqa: E402
 from app.methodology_page import render_methodology_page  # noqa: E402
 from app.percentile_bars import pctile_color  # noqa: E402
+from app import verdict_style  # noqa: E402
 from app.theme import (  # noqa: E402
     CARD_BACKGROUND,
     TEXT,
@@ -1025,22 +1026,37 @@ _FORMAT_SPEC = {
 # silver = the model can't distinguish this from fair, bronze = poor
 # value. Using discrete colors (rather than the continuous scale) keeps
 # the three categories visually distinct at a glance.
-_VERDICT_COLORS = {
-    "Underpaid": "rgb(212,175,55)",           # gold -- confident
-    "Leaning underpaid": "rgb(206,188,129)",  # gold/silver blend -- probable
-    "Fairly paid": "rgb(200,200,203)",        # silver
-    "Leaning overpaid": "rgb(188,156,133)",   # silver/bronze blend -- probable
-    "Overpaid": "rgb(176,111,62)",            # bronze -- confident
-    "Unknown": None,
-}
+#
+# The colors themselves, the confidence-based fade, and the
+# low-confidence text suffix all live in app/verdict_style.py -- shared
+# with the player page's headline badge (app/player_page.py), which
+# can't import them from here without a circular import (this module
+# already imports player_page.py). See that module's docstring for the
+# full "why this exists."
+_VERDICT_COLORS = {v: verdict_style.rgb(c) for v, c in verdict_style.VERDICT_COLORS.items()}
+_VERDICT_COLORS["Unknown"] = None
+_LOW_CONFIDENCE_SUFFIX = verdict_style.LOW_CONFIDENCE_SUFFIX
+_CONFIDENCE_BLEND = verdict_style.CONFIDENCE_BLEND
+_CONFIDENCE_WEIGHT = verdict_style.CONFIDENCE_WEIGHT
+_verdict_base = verdict_style.verdict_base
 
 
-def _style_table(display_df: pd.DataFrame, medal_columns: dict):
+def _lighten(rgb_str: str, amount: float) -> str:
+    """Blend an 'rgb(r,g,b)' string toward white by `amount` (0..1)."""
+    r, g, b = (int(x) for x in rgb_str.strip()[4:-1].split(","))
+    return verdict_style.rgb(verdict_style.lighten((r, g, b), amount))
+
+
+def _style_table(display_df: pd.DataFrame, medal_columns: dict, confidence=None):
     """Color-code one or more columns with the bronze/silver/gold medal
     scale (same one used everywhere else in the app), and cap every
     numeric column to a sane number of decimals.
 
     medal_columns: {display_column_name: percentile_series_0_to_100}
+    confidence: estimate_confidence values aligned row-for-row with
+        display_df, used to fade the Verdict badge for shakier estimates
+        (see _CONFIDENCE_BLEND). Optional -- Verdict renders at full
+        strength if omitted.
     """
 
     def _make_highlighter(colors):
@@ -1056,12 +1072,26 @@ def _style_table(display_df: pd.DataFrame, medal_columns: dict):
             axis=0,
         )
 
-    # Discrete medal coloring for the Verdict column.
+    # Discrete medal coloring for the Verdict column, faded by confidence.
     if "Verdict" in display_df.columns:
-        verdict_colors = [_VERDICT_COLORS.get(v) for v in display_df["Verdict"]]
+        verdict_colors = [_VERDICT_COLORS.get(_verdict_base(v)) for v in display_df["Verdict"]]
+        confs = list(confidence) if confidence is not None else [None] * len(display_df)
+
+        def _verdict_styles(colors, confs):
+            styles = []
+            for c, conf in zip(colors, confs):
+                if not c:
+                    styles.append("")
+                    continue
+                amount = _CONFIDENCE_BLEND.get(conf, 0.0)
+                weight = _CONFIDENCE_WEIGHT.get(conf, 600)
+                fill = _lighten(c, amount)
+                styles.append(f"background-color: {fill}; color: #0B0F1A; font-weight: {weight};")
+            return styles
+
         styler = styler.apply(
-            lambda col, _colors=verdict_colors: (
-                _make_highlighter(_colors)(col) if col.name == "Verdict" else ["" for _ in col]
+            lambda col, _colors=verdict_colors, _confs=confs: (
+                _verdict_styles(_colors, _confs) if col.name == "Verdict" else ["" for _ in col]
             ),
             axis=0,
         )
@@ -1080,7 +1110,17 @@ def _render_table_tab(base_df: pd.DataFrame, columns: list, key: str):
         columns = _COMPACT_COLUMNS.get(key, columns)
     cols_present = [c for c in columns if c in base_df.columns]
     has_pctile = "value_score_pctile" in base_df.columns
-    tab_df = base_df[cols_present + (["value_score_pctile"] if has_pctile else [])].copy()
+    # estimate_confidence drives the Verdict badge's fade (see
+    # _style_table) even on tabs/compact views whose column list doesn't
+    # include a separate "Confidence" column -- e.g. the compact
+    # Advanced/Contract tabs -- so it's always pulled in here as a
+    # working column, independent of whether it's actually displayed.
+    has_confidence = "estimate_confidence" in base_df.columns
+    confidence_requested = "estimate_confidence" in cols_present
+    extra_cols = (["value_score_pctile"] if has_pctile else []) + (
+        ["estimate_confidence"] if has_confidence and not confidence_requested else []
+    )
+    tab_df = base_df[cols_present + extra_cols].copy()
 
     # Hide rows with no data: if every stat column for this tab (i.e.
     # everything except player/team/pos) is blank, the row is pure noise
@@ -1103,6 +1143,17 @@ def _render_table_tab(base_df: pd.DataFrame, columns: list, key: str):
     # value_score isn't itself 0-100).
     production_pctiles = tab_df["production_pctile"] if "production_pctile" in tab_df.columns else None
 
+    # Read, don't pop, when Confidence is one of the requested display
+    # columns (it stays visible); pop it when it was only pulled in as a
+    # styling helper above, so it doesn't leak into display_df as an
+    # extra unrequested column.
+    if has_confidence:
+        confidence_series = (
+            tab_df["estimate_confidence"] if confidence_requested else tab_df.pop("estimate_confidence")
+        )
+    else:
+        confidence_series = pd.Series([None] * len(tab_df))
+
     display_df = tab_df.rename(columns=_COLUMN_LABELS)
 
     medal_columns = {}
@@ -1120,8 +1171,22 @@ def _render_table_tab(base_df: pd.DataFrame, columns: list, key: str):
 
     # Keep a clean copy for the CSV download BEFORE turning the Player
     # column into links -- otherwise the exported file would contain
-    # "?player=Ryan Rollins" instead of the name.
+    # "?player=Ryan Rollins" instead of the name. Also before the
+    # low-confidence suffix below, so the exported CSV keeps plain
+    # "Overpaid"/"Underpaid" values rather than the on-screen caveat text.
     download_df = display_df.copy()
+
+    # Spell the caveat out in the cell itself for the two "confident"
+    # verdicts when the underlying estimate is Low confidence -- see the
+    # _CONFIDENCE_BLEND comment for why the badge fade alone isn't
+    # enough. "Leaning" verdicts already hedge in the word and are left
+    # alone here; the fade in _style_table still applies to every tier.
+    if "Verdict" in display_df.columns:
+        display_df = display_df.copy()
+        display_df["Verdict"] = [
+            verdict_style.verdict_text(v, conf)
+            for v, conf in zip(display_df["Verdict"], confidence_series)
+        ]
 
     # Navigation via a link column rather than row selection. Streamlit's
     # row-selection UI adds a checkbox column, and because the dataframe
@@ -1145,7 +1210,7 @@ def _render_table_tab(base_df: pd.DataFrame, columns: list, key: str):
         )
 
     st.dataframe(
-        _style_table(display_df, medal_columns),
+        _style_table(display_df, medal_columns, confidence_series),
         width="stretch",
         height=420 if compact_view else 600,
         key=f"table_{key}",
